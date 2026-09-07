@@ -132,8 +132,6 @@ function closeSheet() {
   $('#sheet').hidden = true;
   $('#sheet-body').innerHTML = '';
   document.body.classList.remove('sheet-open');
-  /* The transfer sheet leaves a ticking countdown behind it. */
-  stopTransferCountdown();
 }
 
 /* -------------------------------------------------------------- rest timer */
@@ -2197,21 +2195,6 @@ function renderSettings() {
       <button class="btn block danger" data-action="wipe" style="margin-top:14px">Erase all data</button>
     </div>
 
-    ${syncConfigured() ? `
-    <div class="card">
-      <div class="card-title">Move to another device</div>
-      <p class="small muted">Copies your whole log to a phone, tablet or computer without a file to
-        shuffle. One device makes a code, the other types it in. The copy in between is encrypted
-        with that code and deleted the moment it is picked up.</p>
-
-      <button class="btn block secondary" data-action="transfer-send">Send from this device</button>
-      <p class="small muted" style="margin:6px 0 12px">Gives you a code to type on the other one.</p>
-
-      <button class="btn block secondary" data-action="transfer-receive">Receive onto this device</button>
-      <p class="small muted" style="margin:6px 0 0">Replaces everything here with what the other
-        device sends. It keeps its own copy.</p>
-    </div>` : ''}
-
     <p class="small muted center" style="margin-top:18px">
       ${state.sessions.length} workout${state.sessions.length === 1 ? '' : 's'} &middot;
       ${state.routines.length} routine${state.routines.length === 1 ? '' : 's'}
@@ -2278,145 +2261,6 @@ async function exportCsv() {
   const blob = new Blob([csv], { type: 'text/csv' });
   const result = await shareOrDownload(blob, `cadence-workouts-${stamp()}.csv`, 'My workouts');
   if (result === 'downloaded') toast('Spreadsheet saved');
-}
-
-/* ------------------------------------------------ device-to-device transfer */
-
-let transferTick = null;
-
-function stopTransferCountdown() {
-  if (transferTick) { clearInterval(transferTick); transferTick = null; }
-}
-
-/* The same shape exportData() writes, so the receiving end can hand it
-   straight to the restore path that files already use. */
-function transferPayload() {
-  return {
-    version: state.version,
-    settings: state.settings,
-    routines: state.routines,
-    sessions: state.sessions,
-    weights: state.weights,
-    exportedAt: new Date().toISOString(),
-  };
-}
-
-async function startTransferSend() {
-  openSheet('Send to another device', '<p class="small muted">Sealing your log…</p>');
-
-  let result;
-  try {
-    result = await sendTransfer(transferPayload());
-  } catch (err) {
-    console.error(err);
-    $('#sheet-body').innerHTML = `
-      <p>Could not start the transfer.</p>
-      <p class="small muted">${esc(err.message)}</p>
-      <p class="small muted">This one needs a connection — it is the only part of Cadence that does.</p>`;
-    return;
-  }
-
-  const { code, expiresAt } = result;
-  $('#sheet-body').innerHTML = `
-    <p class="small muted">On the other device open Cadence, go to
-      <strong>Settings &rarr; Move to another device &rarr; Receive</strong>, and type this in.</p>
-    <div class="transfer-code">${esc(formatTransferCode(code))}</div>
-    <p class="small muted center" id="transfer-expiry"></p>
-    <p class="small muted">Nobody can read the copy in between without this code, including me —
-      which also means it cannot be recovered if you lose it. Your log stays on this device either
-      way.</p>`;
-
-  const paint = () => {
-    const left = +expiresAt - Date.now();
-    const el = $('#transfer-expiry');
-    if (!el) { stopTransferCountdown(); return; }
-    if (left <= 0) {
-      stopTransferCountdown();
-      el.textContent = 'Expired — close this and send again.';
-      return;
-    }
-    const m = Math.floor(left / 60000);
-    const s = Math.floor((left % 60000) / 1000);
-    el.textContent = `Expires in ${m}:${String(s).padStart(2, '0')}`;
-  };
-
-  stopTransferCountdown();
-  paint();
-  transferTick = setInterval(paint, 1000);
-}
-
-function showTransferReceive() {
-  openSheet('Receive onto this device', `
-    <p class="small muted">Type the code from the other device.</p>
-    <input class="text" id="transfer-code" inputmode="latin" autocapitalize="characters"
-           autocomplete="off" spellcheck="false" placeholder="XXXXX-XXXXX"
-           style="text-align:center;font-size:20px;letter-spacing:.12em">
-    <p class="small muted" id="transfer-error" style="color:var(--danger)" hidden></p>
-    <button class="btn block" data-action="transfer-claim" style="margin-top:12px">Fetch it</button>
-    <p class="small muted" style="margin-top:10px">This replaces the ${state.sessions.length}
-      workout${state.sessions.length === 1 ? '' : 's'} on this device. You will be asked to
-      confirm first.</p>`);
-  const input = $('#transfer-code');
-  if (input) input.focus();
-}
-
-async function claimTransfer() {
-  const input = $('#transfer-code');
-  const errEl = $('#transfer-error');
-  const btn = $('[data-action="transfer-claim"]');
-  if (!input) return;
-
-  const fail = (msg) => {
-    if (!errEl) return;
-    errEl.textContent = msg;
-    errEl.hidden = false;
-  };
-
-  errEl.hidden = true;
-  btn.disabled = true;
-  btn.textContent = 'Fetching…';
-
-  let payload;
-  try {
-    payload = await receiveTransfer(input.value);
-  } catch (err) {
-    btn.disabled = false;
-    btn.textContent = 'Fetch it';
-    fail(err.message);
-    return;
-  }
-
-  if (!Array.isArray(payload.sessions) || !Array.isArray(payload.routines)) {
-    btn.disabled = false;
-    btn.textContent = 'Fetch it';
-    fail('That transfer did not contain a Cadence log.');
-    return;
-  }
-
-  /* Claimed and already deleted from the relay by this point, so a refusal
-     here loses it. Say so rather than letting "Cancel" look free. */
-  const ok = confirm(
-    `Replace everything on this device with ${plural(payload.sessions.length, 'workout')} and `
-    + `${plural(payload.routines.length, 'routine')}?\n\n`
-    + 'The transfer has already been collected, so cancelling discards it and you would need to '
-    + 'send a fresh code.'
-  );
-  if (!ok) {
-    closeSheet();
-    toast('Transfer discarded');
-    return;
-  }
-
-  state = {
-    ...clone(DEFAULTS),
-    ...payload,
-    settings: { ...DEFAULTS.settings, ...(payload.settings || {}) },
-    active: null,
-  };
-  save();
-  closeSheet();
-  render();
-  toast(`${plural(payload.sessions.length, 'workout')} received`);
 }
 
 let pendingCsv = null;
@@ -3202,18 +3046,6 @@ if (state.active) keepScreenAwake();
 
     case 'import':
       importData();
-      break;
-
-    case 'transfer-send':
-      startTransferSend();
-      break;
-
-    case 'transfer-receive':
-      showTransferReceive();
-      break;
-
-    case 'transfer-claim':
-      claimTransfer();
       break;
 
     case 'csv-merge': {

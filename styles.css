@@ -616,14 +616,3 @@ select.text.slim{width:auto;flex:1;min-width:150px;padding:8px 10px;font-size:13
   background:none;border:0;padding:2px 4px;
   color:var(--accent-fg);font-weight:700;font-size:14px;
 }
-
-/* The transfer code is read off one screen and typed into another, often at
-   arm's length, so it gets to be the biggest thing in the sheet. Tabular
-   figures stop the groups shifting width between characters. */
-.transfer-code{
-  margin:18px 0 6px;padding:16px 10px;
-  background:var(--surface-2);border:1px solid var(--line);border-radius:12px;
-  font-size:30px;font-weight:700;letter-spacing:.14em;text-align:center;
-  font-variant-numeric:tabular-nums;
-  user-select:all;-webkit-user-select:all;
-}

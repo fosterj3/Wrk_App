@@ -54,9 +54,6 @@ account, which means:
 So use **Settings → Backup file (.json)** now and then; *Import* restores it. There is also a
 **Spreadsheet (.csv)** export for reading and sharing — see below.
 
-To get your log onto a second device without a file to shuffle, there is an optional
-[encrypted transfer](#moving-a-log-between-devices) — still no account, and off until configured.
-
 ## Running it locally
 
 The app is plain HTML, CSS and JavaScript — no build step and no dependencies. But it does need to
@@ -90,8 +87,6 @@ Then open <http://localhost:8080/>.
 | `library.js` | The exercise library, shared by the app and the tests |
 | `tests.html` / `tests.js` | Pure-logic test suite — open the page to run it |
 | `viz.js` | Chart building and stats aggregation for the Data tab |
-| `sync.js` | Device-to-device transfer: code generation, encryption, relay |
-| `SETUP-TRANSFER.md` | How to switch transfer on with a free Firebase project |
 | `styles.css` | Styling, dark theme, mobile-first layout |
 | `sw.js` | Service worker for offline use |
 | `manifest.webmanifest` | Makes it installable as a PWA |
@@ -122,12 +117,7 @@ the *second* refresh, which reads as "my deploy did not work".
 
 ## Not built yet
 
-Supersets, friends, notifications, an AI coach chat, and nutrition tracking.
-
-**Continuous sync** is deliberately still not here. Moving a log between devices is a
-[hand-off you ask for](#moving-a-log-between-devices), not a background process — which keeps the
-app free of accounts, of a server that holds readable training data, and of merge conflicts between
-two half-logged workouts.
+Supersets, cross-device sync, friends, notifications, an AI coach chat, and nutrition tracking.
 
 ## What the paste parser understands
 
@@ -396,62 +386,6 @@ meaningless once it's a timed hold, and keeping it would show nonsense in the ro
 
 Clearing a name field doesn't erase the name; the blank simply isn't saved, so you can select-all
 and retype without losing it if you change your mind.
-
-
-## Moving a log between devices
-
-Log on the phone at the gym, then pick it up on the computer at home. There is still **no account
-and no sync** — this is a deliberate hand-off, closer to AirDrop than to Dropbox.
-
-One device seals its log and shows a ten-character code. The other types the code in and takes it.
-The copy in between is deleted the moment it's claimed, and expires by itself in fifteen minutes
-either way.
-
-**Off unless configured.** `SYNC_CONFIG` in `sync.js` ships empty, the card never renders, and the
-app behaves exactly as it did before. [SETUP-TRANSFER.md](SETUP-TRANSFER.md) has the ten minutes of
-console clicking that turns it on.
-
-### The code is the whole secret
-
-Both the storage location and the encryption key are derived from the code, which is never sent
-anywhere:
-
-- `docId = SHA-256("cadence-transfer-id:" + code)` — the relay is told a hash. A leaked list of
-  document names can't be turned back into keys.
-- `key = PBKDF2(code, 200k iterations) → AES-GCM-256` — done in the browser, on both ends.
-
-So the relay holds ciphertext under a name that means nothing. Not "we promise not to look" —
-there is nothing to look at. That is what lets the landing page keep saying nobody can see your
-training.
-
-The cost is the honest one: **lose the code and the transfer is gone.** No recovery, because
-recovery would mean somebody else could do it too. It matters less than it sounds — the sending
-device still has everything, and you just send a new one.
-
-Ten characters of Crockford base32 is 50 bits. The alphabet drops I, L, O and U so nothing is
-misread across a room, and the input forgives them anyway — typing `O` where you meant `0` still
-works.
-
-### Why Firestore's REST API and not the SDK
-
-The whole app is plain `<script>` tags with no bundler, and the Firebase SDK is ESM. Firestore has a
-REST API, so the transport is four `fetch` calls and the architecture stays intact. It also means
-nothing is loaded from a CDN at runtime.
-
-### Why not Supabase
-
-It was the closer fit on paper — Postgres, better free tier limits. But **free Supabase projects
-pause after a week of inactivity.** A transfer feature is used rarely by definition, so it would
-reliably be asleep at the moment someone needed it, and waking it means logging into a dashboard.
-Firebase's free tier doesn't pause.
-
-### What is checked
-
-`sync.js` is pure below the transport, and the tests swap in a stand-in relay to exercise the whole
-flow without a network: a sealed blob doesn't contain the plaintext, a wrong key fails closed rather
-than returning noise, a claimed transfer can't be claimed twice, expiry is refused, base64 survives
-a 400KB log (spreading that into `String.fromCharCode` blows the argument limit — which is exactly
-the size this feature exists for), and a code typed in lowercase with the dash still works.
 
 ## Exporting
 

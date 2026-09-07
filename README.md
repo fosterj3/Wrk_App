@@ -596,3 +596,65 @@ actually in, explains that only Safari can do it, and offers a **Copy link for S
 than leaving you to hunt through a menu. Detection is by user-agent tag — `CriOS`, `FxiOS`, `EdgiOS`,
 `OPiOS`, `GSA`, `DuckDuckGo` — since every iOS browser otherwise claims to be Safari. There are tests
 for each of those in `tests.js`; user-agent sniffing is exactly the kind of thing that rots quietly.
+
+## The QA pass
+
+A full sweep of the app against a synthetic history — **479 sessions and 400 weigh-ins spanning
+about two years** — plus a fresh install, checking every view in both themes: logging, timers,
+swipe-to-delete and undo, reordering, notes, PR detection, plates, routines, paste import, the plan
+builder, the calendar (including retroactive logging and the refusal to log the future), all five
+Data ranges, unit conversion round trips, exercise renaming, the JSON and CSV round trips, contrast,
+accessible names, the offline shell and the service worker.
+
+It found three real problems, all fixed. Each is worth recording because none would have shown up on
+the small dataset that day-to-day use produces.
+
+### White text on the danger colour was unreadable
+
+`--danger` is `#ff6b6b`, and white on it measured **2.78:1** in dark mode — under half the 4.5:1
+minimum. It had gone unnoticed because destructive buttons are the ones you look at least. Fixed by
+adding `--danger-ink` (`#2b0708` dark, `#ffffff` light) and `--tip-ink` rather than hard-coding
+white, keeping every colour inside the token system.
+
+### Malformed storage blanked the app
+
+If `wrk.v1` held something structurally wrong — `sessions: null`, `sessions: 'oops'`, a session with
+no `entries` array — the app threw during its first render and left a **blank screen with no way
+back**, which is about the worst failure mode for a local-first app whose only copy of your data is
+in that same storage.
+
+`normalizeState()` in `util.js` now repairs the shape on load: wrong types are replaced with
+defaults, and unusable records are dropped rather than taking the app down with them. Twelve tests
+cover it. The important property is that a partially valid store keeps whatever *is* valid, so a
+single bad session cannot cost you the other 478.
+
+### The Data tab took 1.5 seconds on a real history
+
+"All time" rendered in **1494 ms** against two years of data. Four separate causes, all
+found by measuring rather than guessing:
+
+| What | Before | After |
+| --- | --- | --- |
+| `rollingAverage` re-scanning the window per point (O(n²)) | 340 ms | 1.3 ms |
+| `sessionsIn` re-parsing every session date, once per chart | 70 ms | 2 ms |
+| `exerciseSeries` constructing an `Intl.DateTimeFormat` per point | 173 ms | 7.3 ms |
+| `weightChart` drawing 400 overlapping dots into a 296px plot | 165 ms | 7 ms |
+
+`rollingAverage` became a sliding window, so it is worth being explicit that the rewrite was
+verified rather than assumed: it was checked against the brute-force version over **21,552 points
+across 300 randomized trials**, and the windows are provably identical. The only differences are
+floating-point rounding at exact `.x5` boundaries.
+
+The dot thinning is the one that changes what you see: past ~120 weigh-ins the raw dots overlap into
+a smear and their touch targets overlap into uselessness, so they are thinned to what can actually
+be seen and tapped. **The average line still uses every point**, so the trend is unaffected.
+
+Worst-case render is now 173 ms.
+
+### And one cosmetic fix
+
+Over a multi-year history the axis read **"Jul 1 – Sep 7"** — which looks like ten weeks but was
+actually two years and two months. No data was being dropped; the label format simply omitted the
+year. Long spans now name it: the bodyweight and progress axes switch to `Jul 2024`, and monthly
+bars to `Sep '23`, while short ranges keep the day as before. Tooltips always keep the full date,
+since two points can share a month.

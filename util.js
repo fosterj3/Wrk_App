@@ -86,3 +86,77 @@ function isIosWrongBrowser() {
   const name = iosBrowserName();
   return !!name && name !== 'Safari';
 }
+
+/* ------------------------------------------------------- state repair */
+
+/**
+ * Coerce whatever came out of storage into a shape the app can actually walk.
+ *
+ * load() already survives unparseable JSON, but not JSON that parses into the
+ * wrong shape — `sessions: null`, a session with no `entries`, a string where
+ * an array belongs. Any of those crashed the first render, which leaves a blank
+ * screen and no way back except clearing storage, i.e. losing everything.
+ *
+ * Deliberately salvaging rather than strict: drop only the records that cannot
+ * be read, and keep the rest.
+ */
+function normalizeState(parsed, defaults) {
+  const arr = (v) => (Array.isArray(v) ? v : []);
+  const str = (v) => (v == null ? '' : String(v));
+
+  const sets = (v) => arr(v)
+    .filter((s) => s && typeof s === 'object')
+    .map((s) => ({ ...s, id: s.id || uid() }));
+
+  const entries = (v) => arr(v)
+    .filter((e) => e && typeof e === 'object' && e.name)
+    .map((e) => ({
+      ...e,
+      id: e.id || uid(),
+      name: str(e.name),
+      type: ['lifting', 'cardio', 'timed'].includes(e.type) ? e.type : 'lifting',
+      sets: sets(e.sets),
+    }));
+
+  const sessions = arr(parsed && parsed.sessions)
+    .filter((s) => s && typeof s === 'object' && s.date && !isNaN(+new Date(s.date)))
+    .map((s) => ({
+      ...s,
+      id: s.id || uid(),
+      name: str(s.name) || 'Workout',
+      durationMs: Number(s.durationMs) || 0,
+      entries: entries(s.entries),
+    }));
+
+  const routines = arr(parsed && parsed.routines)
+    .filter((r) => r && typeof r === 'object')
+    .map((r) => ({
+      ...r,
+      id: r.id || uid(),
+      name: str(r.name) || 'Routine',
+      items: arr(r.items)
+        .filter((i) => i && typeof i === 'object' && i.name)
+        .map((i) => ({ ...i, name: str(i.name), sets: arr(i.sets) })),
+    }));
+
+  const weights = arr(parsed && parsed.weights)
+    .filter((w) => w && typeof w === 'object' && w.date && Number(w.value) > 0)
+    .map((w) => ({ id: w.id || uid(), date: w.date, value: Number(w.value) }));
+
+  const active = parsed && parsed.active && typeof parsed.active === 'object'
+    ? { ...parsed.active, entries: entries(parsed.active.entries) }
+    : null;
+
+  const settings = (parsed && parsed.settings && typeof parsed.settings === 'object')
+    ? parsed.settings : {};
+
+  return {
+    ...defaults,
+    ...(parsed && typeof parsed === 'object' ? parsed : {}),
+    sessions,
+    routines,
+    weights,
+    active,
+    settings: { ...defaults.settings, ...settings },
+  };
+}

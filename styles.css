@@ -19,6 +19,8 @@
   --good-ink:#04240f;
   --warn:#ffb020;
   --danger:#ff6b6b;
+  --danger-ink:#2b0708;      /* white on this red is only 2.8:1 */
+  --tip-ink:#ffffff;
 
   --chip-ink:#0b0714;
   --scrim:rgba(0,0,0,.6);
@@ -59,6 +61,8 @@
   --good-ink:#ffffff;
   --warn:#b45309;
   --danger:#b91c1c;
+  --danger-ink:#ffffff;
+  --tip-ink:#ffffff;
 
   --chip-ink:#ffffff;
   --scrim:rgba(30,24,45,.35);
@@ -425,7 +429,7 @@ select.text.slim{width:auto;flex:1;min-width:150px;padding:8px 10px;font-size:13
 
 .viz-tip{
   position:fixed;z-index:90;pointer-events:none;
-  background:var(--viz-tip-bg);color:#fff;border:1px solid var(--line);
+  background:var(--viz-tip-bg);color:var(--tip-ink);border:1px solid var(--line);
   border-radius:9px;padding:7px 10px;font-size:12px;line-height:1.35;
   box-shadow:var(--shadow);max-width:200px;
 }
@@ -489,7 +493,7 @@ select.text.slim{width:auto;flex:1;min-width:150px;padding:8px 10px;font-size:13
 .timed .set-head,.timed .set-row{grid-template-columns:34px 1fr 44px 44px}
 .pill.timed{color:var(--good);border-color:var(--done-line)}
 .timer-btn{font-size:14px}
-.timer-btn.on{background:var(--danger);border-color:var(--danger);color:#fff}
+.timer-btn.on{background:var(--danger);border-color:var(--danger);color:var(--danger-ink)}
 .timer-bar.counting-up #timer-fill{background:var(--good)}
 .timer-label{
   max-width:38%;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;
@@ -535,7 +539,7 @@ select.text.slim{width:auto;flex:1;min-width:150px;padding:8px 10px;font-size:13
   border-radius:inherit;
   /* Inset by a pixel: at identical radii the two curves antialias against each
      other and a red hairline shows along the face's rounded corner. */
-  border:0;background:var(--danger);color:#fff;
+  border:0;background:var(--danger);color:var(--danger-ink);
   font-weight:700;font-size:14px;
 }
 .swipe-wrap > .swipe-face{

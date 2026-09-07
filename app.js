@@ -29,12 +29,10 @@ function load() {
   try {
     const raw = localStorage.getItem(STORE_KEY);
     if (!raw) return clone(DEFAULTS);
-    const parsed = JSON.parse(raw);
-    return {
-      ...clone(DEFAULTS),
-      ...parsed,
-      settings: { ...DEFAULTS.settings, ...(parsed.settings || {}) },
-    };
+    /* Surviving unparseable JSON isn't enough — JSON that parses into the
+       wrong shape used to crash the first render, which is a blank screen with
+       no way back except wiping the log. */
+    return normalizeState(JSON.parse(raw), clone(DEFAULTS));
   } catch (err) {
     console.error('Could not read saved data, starting fresh.', err);
     return clone(DEFAULTS);
@@ -1577,7 +1575,7 @@ function renderData() {
   const progress = dataExercise
     ? exerciseSeries(inRange, dataExercise, dataMetric).map((p) => ({
         ...p,
-        tip: `${p.label}\n${p.value} ${state.settings.units}`
+        tip: `${p.full}\n${p.value} ${state.settings.units}`
           + (dataMetric === 'e1rm' ? ' est. 1RM' : ' top set'),
       }))
     : [];

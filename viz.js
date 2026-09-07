@@ -90,15 +90,21 @@ function makeBuckets(range, sessions) {
   const span = Math.round((startOfWeek(now) - startOfWeek(first)) / (7 * 86400000)) + 1;
   if (span <= 26) return weekBuckets(startOfWeek(first), span);
 
+  /* Bare month names repeat once the history passes a year — "Sep, Apr, Nov,
+     Jun" gives no clue which Sep. Only some labels survive thinning, so tag
+     every one rather than relying on a January that may be dropped. Two digits
+     keeps it inside the band. */
+  const multiYear = first.getFullYear() !== now.getFullYear();
   const buckets = [];
   const cur = new Date(first.getFullYear(), first.getMonth(), 1);
   while (cur <= now) {
     const s = new Date(cur);
     const e = new Date(cur.getFullYear(), cur.getMonth() + 1, 1);
+    const month = s.toLocaleDateString(undefined, { month: 'short' });
     buckets.push({
       start: s,
       end: e,
-      label: s.toLocaleDateString(undefined, { month: 'short' }),
+      label: multiYear ? `${month} '${String(s.getFullYear()).slice(2)}` : month,
       full: s.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }),
     });
     cur.setMonth(cur.getMonth() + 1);
@@ -106,10 +112,26 @@ function makeBuckets(range, sessions) {
   return { mode: 'month', buckets };
 }
 
+/* Parsing a session's date is the single most repeated operation in this file:
+   the Data tab asks for the same range once per chart, per bucket. Keyed on the
+   session object, so replacing a session naturally invalidates its entry. */
+const SESSION_STAMPS = new WeakMap();
+
+function sessionStamp(s) {
+  let t = SESSION_STAMPS.get(s);
+  if (t === undefined) {
+    t = +new Date(s.date);
+    SESSION_STAMPS.set(s, t);
+  }
+  return t;
+}
+
 function sessionsIn(sessions, from, to) {
+  const a = +from;
+  const b = +to;
   return sessions.filter((s) => {
-    const t = +new Date(s.date);
-    return t >= +from && t < +to;
+    const t = sessionStamp(s);
+    return t >= a && t < b;
   });
 }
 
@@ -163,12 +185,20 @@ function exerciseSeries(sessions, name, metric) {
       });
     });
     if (best > 0) {
-      points.push({
-        date: new Date(s.date),
-        value: Math.round(best),
-        label: new Date(s.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
-      });
+      points.push({ date: new Date(s.date), value: Math.round(best) });
     }
+  });
+
+  /* Label once the whole span is known: over a multi-year history "Jul 1" reads
+     as this July, so the axis names the year instead. The tooltip always keeps
+     the full date, since two points can share a month. */
+  const spansYears = points.length > 1
+    && crossesYears(points[0].date, points[points.length - 1].date);
+  points.forEach((p) => {
+    p.label = axisDate(p.date, spansYears);
+    p.full = formatDate(p.date, spansYears
+      ? { year: 'numeric', month: 'short', day: 'numeric' }
+      : { month: 'short', day: 'numeric' });
   });
   return points;
 }
@@ -219,6 +249,30 @@ function currentStreak(sessions) {
 }
 
 /* ------------------------------------------------------------- formatting */
+
+/* toLocaleDateString allocates a formatter on every call, which is slow enough
+   to show up when labelling hundreds of points. Reuse one per format. */
+const FORMATTERS = new Map();
+
+function formatDate(date, opts) {
+  const key = JSON.stringify(opts);
+  if (!FORMATTERS.has(key)) FORMATTERS.set(key, new Intl.DateTimeFormat(undefined, opts));
+  return FORMATTERS.get(key).format(date instanceof Date ? date : new Date(date));
+}
+
+/**
+ * An axis endpoint. Adds the year when the range crosses one — otherwise a
+ * two-year span reads as "Jul 1 – Sep 7", which looks like two months.
+ */
+function axisDate(date, spansYears) {
+  return formatDate(date, spansYears
+    ? { month: 'short', year: 'numeric' }
+    : { month: 'short', day: 'numeric' });
+}
+
+function crossesYears(a, b) {
+  return new Date(a).getFullYear() !== new Date(b).getFullYear();
+}
 
 function compact(n) {
   const v = Math.round(n);
@@ -850,18 +904,35 @@ function sessionKeyOf(s) {
 /* Daily scale readings swing a few pounds on water alone, so the raw dots are
    context and the rolling average is the actual signal. */
 function rollingAverage(entries, windowDays) {
-  const sorted = [...entries].sort((a, b) => +new Date(a.date) - +new Date(b.date));
   const span = windowDays * 86400000;
 
-  return sorted.map((e) => {
-    const t = +new Date(e.date);
-    const inWindow = sorted.filter((o) => {
-      const ot = +new Date(o.date);
-      return ot <= t && ot > t - span;
+  /* Parse each date once. The obvious version — filter the whole array for
+     every point — is O(n²) with a date parse in the inner loop, which cost
+     340ms on a few hundred weigh-ins and froze the Data tab. */
+  const rows = entries
+    .map((e) => ({ date: e.date, value: e.value, t: +new Date(e.date), n: Number(e.value) }))
+    .sort((a, b) => a.t - b.t);
+
+  const out = [];
+  let start = 0;
+  let sum = 0;
+
+  for (let i = 0; i < rows.length; i++) {
+    sum += rows[i].n;
+    /* Drop anything that has fallen out of the trailing window. */
+    while (rows[start].t <= rows[i].t - span) {
+      sum -= rows[start].n;
+      start++;
+    }
+    const count = i - start + 1;
+    out.push({
+      date: rows[i].date,
+      value: rows[i].value,
+      avg: Math.round((sum / count) * 10) / 10,
     });
-    const mean = inWindow.reduce((n, o) => n + Number(o.value), 0) / inWindow.length;
-    return { date: e.date, value: e.value, avg: Math.round(mean * 10) / 10 };
-  });
+  }
+
+  return out;
 }
 
 /**
@@ -896,7 +967,14 @@ function weightChart(entries, unit) {
       + `<text class="viz-tick" x="${PAD.left - 6}" y="${y + 3.5}" text-anchor="end">${v.toFixed(0)}</text>`;
   }
 
-  const dots = rows.map((r) => `
+  /* The plot is ~296px wide, so past a couple of hundred weigh-ins the raw dots
+     land on top of each other and the hit targets overlap into uselessness —
+     while still costing a formatted date each. Thin them to what can actually
+     be seen and touched. The average line keeps every point. */
+  const step = Math.max(1, Math.ceil(rows.length / 120));
+  const shown = rows.filter((_, i) => i % step === 0 || i === rows.length - 1);
+
+  const dots = shown.map((r) => `
     <circle class="viz-raw-dot" cx="${px(r.date).toFixed(1)}" cy="${py(Number(r.value)).toFixed(1)}" r="2.5"/>`).join('');
 
   const line = rows.map((r, i) => `${i ? 'L' : 'M'}${px(r.date).toFixed(1)} ${py(r.avg).toFixed(1)}`).join(' ');
@@ -905,11 +983,16 @@ function weightChart(entries, unit) {
   const endX = px(endRow.date);
   const endY = py(endRow.avg);
 
-  const hits = rows.map((r) => `
-    <circle class="viz-hit-dot" cx="${px(r.date).toFixed(1)}" cy="${py(Number(r.value)).toFixed(1)}" r="11"
-            data-tip="${esc(new Date(r.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }))}\n${esc(r.value)} ${esc(unit)}\n7-day avg ${esc(r.avg)}"/>`).join('');
+  const spansYears = crossesYears(rows[0].date, rows[rows.length - 1].date);
+  const tipDate = (d) => formatDate(d, spansYears
+    ? { year: 'numeric', month: 'short', day: 'numeric' }
+    : { month: 'short', day: 'numeric' });
 
-  const label = (d) => new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  const hits = shown.map((r) => `
+    <circle class="viz-hit-dot" cx="${px(r.date).toFixed(1)}" cy="${py(Number(r.value)).toFixed(1)}" r="11"
+            data-tip="${esc(tipDate(r.date))}\n${esc(r.value)} ${esc(unit)}\n7-day avg ${esc(r.avg)}"/>`).join('');
+
+  const label = (d) => axisDate(d, spansYears);
 
   return `<svg class="viz" viewBox="0 0 ${W} ${H}" role="img" aria-label="Bodyweight over time">
     ${grid}

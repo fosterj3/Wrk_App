@@ -46,6 +46,48 @@ describe('utilities', () => {
   check('round trip drifts less than 0.2', Math.abs(back - 225) < 0.2, `got ${back}`);
 });
 
+/* ------------------------------------------------------------ state repair */
+
+describe('surviving bad stored data', () => {
+  const D = {
+    version: 1, settings: { units: 'lb', restSeconds: 90 },
+    routines: [], weights: [], sessions: [], active: null,
+  };
+  const walk = (s) => {
+    /* Roughly what the app does on first render. */
+    s.sessions.forEach((x) => x.entries.forEach((e) => e.sets.forEach(() => {})));
+    s.routines.forEach((r) => r.items.forEach(() => {}));
+    s.weights.forEach(() => {});
+    return true;
+  };
+  const survives = (blob) => {
+    try { return walk(normalizeState(blob, D)); } catch (e) { return `threw: ${e.message}`; }
+  };
+
+  /* Each of these crashed the app to a blank screen before normalizeState. */
+  check('null sessions', survives({ sessions: null, routines: [] }) === true);
+  check('sessions is a string', survives({ sessions: 'oops', routines: [] }) === true);
+  check('session with no entries',
+    survives({ sessions: [{ id: 'x', name: 'W', date: new Date().toISOString() }], routines: [] }) === true);
+  check('entry with no sets',
+    survives({ sessions: [{ date: new Date().toISOString(), entries: [{ name: 'Squat' }] }], routines: [] }) === true);
+  check('routine with no items', survives({ sessions: [], routines: [{ name: 'R' }] }) === true);
+  check('whole blob is a string', survives('nonsense') === true);
+  check('whole blob is null', survives(null) === true);
+
+  eq('an undated session is dropped',
+    normalizeState({ sessions: [{ name: 'no date' }] }, D).sessions.length, 0);
+  eq('a valid session is kept',
+    normalizeState({ sessions: [{ date: '2026-01-01T08:00:00Z', entries: [] }] }, D).sessions.length, 1);
+  eq('an unknown exercise type is coerced to lifting',
+    normalizeState({ sessions: [{ date: '2026-01-01T08:00:00Z',
+      entries: [{ name: 'X', type: 'bogus' }] }] }, D).sessions[0].entries[0].type, 'lifting');
+  eq('a weigh-in with no value is dropped',
+    normalizeState({ weights: [{ date: '2026-01-01', value: 0 }, { date: '2026-01-02', value: 180 }] }, D).weights.length, 1);
+  eq('good data is left alone',
+    normalizeState({ sessions: [], routines: [], weights: [], settings: { units: 'kg' } }, D).settings.units, 'kg');
+});
+
 /* ---------------------------------------------------------------- platform */
 
 describe('platform detection', () => {
@@ -288,6 +330,24 @@ describe('stats', () => {
 
   eq('progress series runs oldest first',
     exerciseSeries(sessions, 'Bench', 'top').map((p) => p.value), [185, 200]);
+
+  /* Regression: an all-time axis read "Jul 1 – Sep 7" for a two-year span,
+     which looks like ten weeks. Long spans name the year on the axis, and the
+     tooltip keeps the day so two points in one month stay distinguishable. */
+  const oneYear = exerciseSeries(sessions, 'Bench', 'top');
+  check('a within-year axis keeps the day', /\d/.test(oneYear[0].label)
+    && !/20\d\d/.test(oneYear[0].label), oneYear[0].label);
+
+  const spanning = [
+    mk('2026-09-01T08:00:00Z', [{ id: 'a', name: 'Bench', type: 'lifting', sets: [{ weight: '205', reps: '5' }] }]),
+    mk('2024-07-01T08:00:00Z', [{ id: 'b', name: 'Bench', type: 'lifting', sets: [{ weight: '185', reps: '5' }] }]),
+  ];
+  const multi = exerciseSeries(spanning, 'Bench', 'top');
+  check('a multi-year axis names the year',
+    multi.every((p) => /20\d\d/.test(p.label)), multi.map((p) => p.label).join(' – '));
+  check('the tooltip still carries the day',
+    multi.every((p) => /20\d\d/.test(p.full) && /\b1\b|\b7\b/.test(p.full)),
+    multi.map((p) => p.full).join(' | '));
 
   eq('set formatting per type', [
     formatSet('lifting', { weight: '185', reps: '8' }, 'lb'),

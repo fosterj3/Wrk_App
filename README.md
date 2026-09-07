@@ -23,6 +23,7 @@ installed copy, so only the product name changed.
 - **Share your week** — a square image of your week for the group chat.
 - **Timers** — a rest countdown that starts on its own when you tick a set (or on demand via Start rest), and a stopwatch for held exercises like planks that writes the time straight into the set.
 - **Calendar** — month and week views showing which days you trained, colour-coded by what you did. Tap any day to see that day's workouts, log one you forgot to record, or delete one.
+- **Bodyweight** — log your weight, see a 7-day rolling average against a goal.
 - **Data** — charts for how often you train, what kind, your strength progression per exercise, weekly volume and cardio, and your most-trained lifts.
 - **Dark and light themes** — royal purple on black, or purple on warm off-white. Follows your phone's setting on first run; switch it any time in Settings.
 - **Works offline** — a service worker caches the app, so it runs in the gym with no signal.
@@ -81,6 +82,9 @@ Then open <http://localhost:8080/>.
 | `app.js` | All app logic: state, storage, rendering, rest timer |
 | `parse.js` | Turns pasted free-form workout text into routines |
 | `plan.js` | Builds a starting program from a goal (the "where do I start" answer) |
+| `util.js` | DOM-free helpers shared by the app and the tests |
+| `library.js` | The exercise library, shared by the app and the tests |
+| `tests.html` / `tests.js` | Pure-logic test suite — open the page to run it |
 | `viz.js` | Chart building and stats aggregation for the Data tab |
 | `styles.css` | Styling, dark theme, mobile-first layout |
 | `sw.js` | Service worker for offline use |
@@ -418,3 +422,53 @@ and billed. That leaves a server proxy (real hosting, real money, needs rate lim
 URL is public) or asking every user for their own key. The guided builder covers the common
 "where do I start" case with neither, and `plan.js` is a clean seam if a chat layer is ever added
 on top.
+
+## Tests
+
+Open **`tests.html`** in the browser. No tooling, no install — it loads the real `util.js`,
+`library.js`, `parse.js`, `plan.js` and `viz.js` in the same order the app does, runs assertions
+against them, and prints pass/fail. Nothing is stubbed, so a red line here means the shipped code
+is wrong.
+
+```bash
+powershell -ExecutionPolicy Bypass -File tools/serve.ps1 -Port 8080
+```
+
+then <http://localhost:8080/tests.html>. A headless runner can read `window.__testResults`.
+
+Coverage is the pure logic: the paste parser, the CSV round trip, the plan builder (all 180
+goal × days × equipment × experience combinations), unit conversion, and the stats helpers.
+**Every case is a bug that actually shipped at some point**, or a rule that would be expensive to
+break quietly — the `135 x 5` per-set misread, `5k in 28 min` producing an exercise called "In",
+the bodyweight plan collapsing to one exercise a day, the `0, 1, 1` axis. When you fix a bug in
+that layer, add the case that would have caught it.
+
+Two things are pinned there deliberately as **known limitations**, so they stay visible rather than
+being rediscovered: converting units there-and-back drifts by up to 0.1 (weights are stored to one
+decimal), and the name matcher resolves `Copenhagen Plank` to `Plank` — the same rule that usefully
+resolves `Barbell Bench Press heavy`. The paste preview shows the resolved name before saving, and
+Settings → Exercise names can split it afterwards.
+
+`util.js` and `library.js` exist so this is possible at all: the pure logic used to depend on
+globals defined inside `app.js`, which meant it could only be exercised by booting the whole UI.
+
+## Editing what's already logged
+
+Tap a workout in the calendar and press **Edit**. It reopens on the normal logging screen — so the
+picker, plates and "last time" all work — and saving **replaces** the original rather than adding a
+second copy. Cancelling leaves the saved workout untouched. Unticking every set is treated as
+deleting it, and asks accordingly.
+
+## Units and exercise names
+
+**Switching kg/lb converts every stored weight.** It has to: the unit is a real unit, not a label,
+so relabelling would turn a recorded `185 lb` into "185 kg" — a 2.2× lie about your whole history.
+Sessions, routines, the bar weight, your bodyweight log and any goal weight are all rewritten, after
+a confirmation that says how many numbers will change.
+
+**Settings → Exercise names** lists every exercise with how often it appears, and lets you rename
+one — onto an existing name to merge them. This matters more than it looks: the exercise *name* is
+the join key for "last time", personal-record detection and the strength-progress chart, so a typo
+silently forks one exercise into two partial histories. Renaming an exercise inside a routine used
+to orphan its logged history the same way; this is the fix. Merging across incompatible types
+(a timed hold into a lifting exercise) is refused rather than corrupting the sets.

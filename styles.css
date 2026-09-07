@@ -519,3 +519,7 @@ select.text.slim{width:auto;flex:1;min-width:150px;padding:8px 10px;font-size:13
   display:flex;justify-content:space-between;gap:12px;margin-top:6px;font-size:13px;
 }
 .plan-row .muted{white-space:nowrap;font-variant-numeric:tabular-nums}
+
+/* Raw weigh-ins are context behind the average line, so they're de-emphasised.
+   Needs `fill` — an SVG circle ignores `background` and would default to black. */
+.viz-raw-dot{fill:var(--viz-dim)}

@@ -17,6 +17,7 @@ const DEFAULTS = {
     weeklyGoal: 3, barWeight: 45, lastExport: null, backupSnooze: null,
   },
   routines: [],
+  weights: [],          /* bodyweight log: [{ id, date, value }] */
   sessions: [],
   active: null,
 };
@@ -49,74 +50,16 @@ function save() {
 }
 
 /* Settings stored as numbers rather than the input's string value. */
-const NUMERIC_SETTINGS = ['restSeconds', 'weeklyGoal', 'barWeight'];
+const NUMERIC_SETTINGS = ['restSeconds', 'weeklyGoal', 'barWeight', 'goalWeight'];
 
 function clone(v) { return JSON.parse(JSON.stringify(v)); }
-function uid() { return Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4); }
 
-/* -------------------------------------------------------- exercise library */
-
-const LIBRARY = [
-  { name: 'Barbell Back Squat', type: 'lifting', group: 'Legs' },
-  { name: 'Front Squat', type: 'lifting', group: 'Legs' },
-  { name: 'Romanian Deadlift', type: 'lifting', group: 'Legs' },
-  { name: 'Leg Press', type: 'lifting', group: 'Legs' },
-  { name: 'Walking Lunge', type: 'lifting', group: 'Legs' },
-  { name: 'Goblet Squat', type: 'lifting', group: 'Legs' },
-  { name: 'Bodyweight Squat', type: 'lifting', group: 'Legs' },
-  { name: 'Dumbbell Lunge', type: 'lifting', group: 'Legs' },
-  { name: 'Dumbbell Romanian Deadlift', type: 'lifting', group: 'Legs' },
-  { name: 'Glute Bridge', type: 'lifting', group: 'Legs' },
-  { name: 'Leg Curl', type: 'lifting', group: 'Legs' },
-  { name: 'Calf Raise', type: 'lifting', group: 'Legs' },
-  { name: 'Barbell Bench Press', type: 'lifting', group: 'Chest' },
-  { name: 'Incline Dumbbell Press', type: 'lifting', group: 'Chest' },
-  { name: 'Push-Up', type: 'lifting', group: 'Chest' },
-  { name: 'Dumbbell Bench Press', type: 'lifting', group: 'Chest' },
-  { name: 'Pike Push-Up', type: 'lifting', group: 'Shoulders' },
-  { name: 'Cable Fly', type: 'lifting', group: 'Chest' },
-  { name: 'Overhead Press', type: 'lifting', group: 'Shoulders' },
-  { name: 'Dumbbell Lateral Raise', type: 'lifting', group: 'Shoulders' },
-  { name: 'Face Pull', type: 'lifting', group: 'Shoulders' },
-  { name: 'Dumbbell Shoulder Press', type: 'lifting', group: 'Shoulders' },
-  { name: 'Deadlift', type: 'lifting', group: 'Back' },
-  { name: 'Pull-Up', type: 'lifting', group: 'Back' },
-  { name: 'Lat Pulldown', type: 'lifting', group: 'Back' },
-  { name: 'Barbell Row', type: 'lifting', group: 'Back' },
-  { name: 'Seated Cable Row', type: 'lifting', group: 'Back' },
-  { name: 'Dumbbell Row', type: 'lifting', group: 'Back' },
-  { name: 'Inverted Row', type: 'lifting', group: 'Back' },
-  { name: 'Barbell Curl', type: 'lifting', group: 'Arms' },
-  { name: 'Dumbbell Curl', type: 'lifting', group: 'Arms' },
-  { name: 'Triceps Pushdown', type: 'lifting', group: 'Arms' },
-  { name: 'Skull Crusher', type: 'lifting', group: 'Arms' },
-  { name: 'Plank', type: 'timed', group: 'Core' },
-  { name: 'Side Plank', type: 'timed', group: 'Core' },
-  { name: 'Dead Hang', type: 'timed', group: 'Back' },
-  { name: 'Wall Sit', type: 'timed', group: 'Legs' },
-  { name: 'Hanging Leg Raise', type: 'lifting', group: 'Core' },
-  { name: 'Cable Crunch', type: 'lifting', group: 'Core' },
-  { name: 'Run', type: 'cardio', group: 'Cardio' },
-  { name: 'Treadmill', type: 'cardio', group: 'Cardio' },
-  { name: 'Walk', type: 'cardio', group: 'Cardio' },
-  { name: 'Cycling', type: 'cardio', group: 'Cardio' },
-  { name: 'Rowing Machine', type: 'cardio', group: 'Cardio' },
-  { name: 'Elliptical', type: 'cardio', group: 'Cardio' },
-  { name: 'Stair Climber', type: 'cardio', group: 'Cardio' },
-  { name: 'Swimming', type: 'cardio', group: 'Cardio' },
-  { name: 'Jump Rope', type: 'cardio', group: 'Cardio' },
-];
 
 /* ------------------------------------------------------------- small utils */
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
-function esc(s) {
-  return String(s ?? '').replace(/[&<>"']/g, (c) => (
-    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
-  ));
-}
 
 function mmss(totalSeconds) {
   const s = Math.max(0, Math.round(totalSeconds));
@@ -583,6 +526,34 @@ function startSession(routine, onDayKey) {
   go('workout');
 }
 
+/**
+ * Reopen a saved workout for editing.
+ *
+ * It becomes the active session with `editingId` set, which reuses the whole
+ * logging screen — picker, plates, timers off — and finishSession() then
+ * replaces the original rather than adding a second copy.
+ */
+function startEditSession(session) {
+  state.active = {
+    id: session.id,
+    editingId: session.id,
+    startedAt: session.date,
+    name: session.name,
+    routineId: null,
+    /* Backdated behaviour is what we want: no rest timer, typed duration. */
+    backdated: true,
+    durationMin: session.durationMs ? Math.round(session.durationMs / 60000) : null,
+    entries: session.entries.map((e) => ({
+      id: uid(),
+      name: e.name,
+      type: e.type,
+      sets: e.sets.map((s) => ({ ...s, id: uid(), done: s.done !== false })),
+    })),
+  };
+  save();
+  go('workout');
+}
+
 /* Choose what to log on a given day: from scratch, or from a routine. */
 function openLogSheet(key) {
   const d = keyToDate(key);
@@ -658,7 +629,7 @@ function renderWorkout() {
   el.innerHTML = `
     ${a.backdated ? `
       <div class="backdate-bar">
-        Logging for <strong>${esc(new Date(a.startedAt).toLocaleDateString(undefined, {
+        ${a.editingId ? "Editing" : "Logging for"} <strong>${esc(new Date(a.startedAt).toLocaleDateString(undefined, {
           weekday: 'long', month: 'long', day: 'numeric',
         }))}</strong>
       </div>` : ''}
@@ -826,15 +797,22 @@ function finishSession() {
     .filter((e) => e.sets.length);
 
   if (!kept.length) {
-    if (!confirm('No sets were marked done. Discard this workout?')) return;
+    /* Editing something down to nothing means deleting it, which is a very
+       different thing from throwing away a session you never saved. */
+    const prompt = a.editingId
+      ? 'Every set is unticked. Delete this saved workout?'
+      : 'No sets were marked done. Discard this workout?';
+    if (!confirm(prompt)) return;
+    if (a.editingId) state.sessions = state.sessions.filter((s) => s.id !== a.editingId);
     state.active = null;
     stopTimer();
     save();
+    if (a.editingId) { go('calendar'); toast('Workout deleted'); return; }
     render();
     return;
   }
 
-  state.sessions.unshift({
+  const record = {
     id: a.id,
     name: a.name,
     date: a.startedAt,
@@ -843,7 +821,15 @@ function finishSession() {
       ? Math.max(0, Number(a.durationMin) || 0) * 60000
       : Date.now() - new Date(a.startedAt).getTime(),
     entries: kept,
-  });
+  };
+
+  if (a.editingId) {
+    const at = state.sessions.findIndex((s) => s.id === a.editingId);
+    if (at >= 0) state.sessions[at] = record;
+    else state.sessions.unshift(record);
+  } else {
+    state.sessions.unshift(record);
+  }
 
   /* Newest first, so a backdated entry lands in the right place. */
   state.sessions.sort((x, y) => +new Date(y.date) - +new Date(x.date));
@@ -852,7 +838,7 @@ function finishSession() {
   state.active = null;
   stopTimer();
   save();
-  toast(a.backdated ? 'Workout logged' : 'Workout saved');
+  toast(a.editingId ? 'Workout updated' : (a.backdated ? 'Workout logged' : 'Workout saved'));
   calCursor = new Date(landedOn);
   calSelected = dayKey(landedOn);
   go('calendar');
@@ -1139,24 +1125,6 @@ let calSelected = null;              // 'YYYY-MM-DD' of the day being detailed
 
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-/* Local-time day key. Deliberately not toISOString(), which shifts to UTC and
-   would file an evening workout under the following day. */
-function dayKey(value) {
-  const d = value instanceof Date ? value : new Date(value);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-function keyToDate(key) {
-  return new Date(`${key}T00:00:00`);
-}
-
-function startOfWeek(d) {
-  const x = new Date(d);
-  x.setHours(0, 0, 0, 0);
-  x.setDate(x.getDate() - x.getDay());
-  return x;
-}
-
 function sessionsByDay() {
   const map = new Map();
   state.sessions.forEach((s) => {
@@ -1367,6 +1335,7 @@ function renderDayDetail(key, sessions) {
               <div style="font-weight:650">${esc(s.name)}</div>
               <div class="small muted">${time}${s.durationMs > 0 ? ` &middot; ${fmtDuration(s.durationMs)}` : ''} &middot; ${sets} set${sets === 1 ? '' : 's'}</div>
             </div>
+            <button class="ghost small" data-action="edit-session" data-id="${s.id}">Edit</button>
             <button class="icon-btn" data-action="delete-session" data-id="${s.id}"
                     aria-label="Delete ${esc(s.name)}">&#128465;</button>
           </div>
@@ -1523,6 +1492,8 @@ function renderData() {
       </div>
     </div>
 
+    ${renderWeightCard(from, to)}
+
     <div class="card">
       <div class="card-title">How often you trained</div>
       <div class="card-sub">Workouts per ${mode}</div>
@@ -1587,8 +1558,208 @@ function renderData() {
     </button>`;
 }
 
+/* Bodyweight. The plan builder's first goal is "lose weight", so the app has to
+   be able to measure it — sets and reps don't answer that question. */
+function renderWeightCard(from, to) {
+  const unit = state.settings.units;
+  const log = state.weights || [];
+  const trend = weightTrend(log, from, to);
+  const goal = Number(state.settings.goalWeight) || 0;
+  const latest = log.length
+    ? [...log].sort((a, b) => +new Date(b.date) - +new Date(a.date))[0]
+    : null;
+
+  if (!log.length) {
+    return `
+      <div class="card">
+        <div class="card-title">Bodyweight</div>
+        <p class="small muted" style="margin:6px 0 12px">Log your weight now and then and the
+          trend shows up here. Daily readings bounce a few ${esc(unit)} on water alone, so the
+          chart smooths them into a 7-day average.</p>
+        <button class="btn block secondary" data-action="log-weight">Log my weight</button>
+      </div>`;
+  }
+
+  /* Down is good here, which is the opposite of every other delta in this tab. */
+  const goodDirection = goal && latest ? (goal < latest.value ? -1 : 1) : -1;
+  const trendClass = !trend || trend.change === 0 ? ''
+    : (Math.sign(trend.change) === goodDirection ? 'up' : 'down');
+
+  let goalLine = '';
+  if (goal && trend) {
+    const remaining = Math.round(Math.abs(trend.latest - goal) * 10) / 10;
+    goalLine = remaining <= 0.1
+      ? `<p class="small" style="margin:8px 0 0;color:var(--good)">You're at your goal of ${goal} ${esc(unit)}.</p>`
+      : `<p class="small muted" style="margin:8px 0 0">${remaining} ${esc(unit)} to your goal of ${goal}.</p>`;
+  }
+
+  return `
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">Bodyweight</div>
+          <div class="card-sub">7-day average, ${esc(unit)}</div>
+        </div>
+        <button class="ghost small" data-action="log-weight">Log</button>
+      </div>
+
+      <div class="row" style="align-items:baseline;gap:10px">
+        <span class="stat-value">${trend ? trend.latest : latest.value}</span>
+        ${trend && trend.change !== 0
+          ? `<span class="delta ${trendClass}">${trend.change > 0 ? '+' : ''}${trend.change} ${esc(unit)} this period</span>`
+          : '<span class="small muted">Not enough weigh-ins yet for a trend</span>'}
+      </div>
+      ${goalLine}
+      ${weightChart(log.filter((e) => { const t = +new Date(e.date); return t >= +from && t < +to; }), unit)
+        || '<p class="small muted" style="margin:10px 0 0">Two weigh-ins in this range and a line appears.</p>'}
+      <div class="viz-legend" style="margin-top:8px">
+        <span><i style="background:var(--viz-dim)"></i>Each weigh-in</span>
+        <span><i style="background:var(--series-lift)"></i>7-day average</span>
+      </div>
+    </div>`;
+}
+
+function openWeightSheet() {
+  const unit = state.settings.units;
+  const log = [...(state.weights || [])].sort((a, b) => +new Date(b.date) - +new Date(a.date));
+  const last = log[0];
+
+  openSheet('Log your weight', `
+    <label class="field">
+      <span>Weight (${esc(unit)})</span>
+      <input class="text" type="number" inputmode="decimal" step="any" id="weight-value"
+             value="${last ? esc(last.value) : ''}" placeholder="e.g. 184.5">
+    </label>
+    <label class="field">
+      <span>Date</span>
+      <input class="text" type="date" id="weight-date" value="${esc(dayKey(new Date()))}"
+             max="${esc(dayKey(new Date()))}">
+    </label>
+    <button class="btn block" data-action="weight-save">Save</button>
+
+    <label class="field" style="margin-top:22px">
+      <span>Goal weight (${esc(unit)}, optional)</span>
+      <input class="text" type="number" inputmode="decimal" step="any"
+             data-setting="goalWeight" value="${state.settings.goalWeight || ''}"
+             placeholder="Leave blank for no goal">
+    </label>
+
+    ${log.length ? `
+      <h3 class="small muted" style="margin:20px 0 8px">RECENT</h3>
+      ${log.slice(0, 8).map((w) => `
+        <div class="pick">
+          <div class="grow">
+            <div class="nm">${esc(w.value)} ${esc(unit)}</div>
+            <div class="card-sub">${esc(new Date(w.date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }))}</div>
+          </div>
+          <button class="icon-btn" data-action="weight-delete" data-id="${w.id}"
+                  aria-label="Delete this weigh-in">&times;</button>
+        </div>`).join('')}` : ''}`);
+}
+
 function columnOrLine(points, unit) {
   return lineChart(points, (v) => `${compact(v)} ${unit}`);
+}
+
+/* ------------------------------------------------- units and exercise names */
+
+/* Rewrites every stored weight into the new unit. Confirmed first, because it
+   touches the whole history and can't be undone without a backup. */
+function switchUnits(to) {
+  const from = state.settings.units;
+  let touched = 0;
+
+  const convertSets = (sets, isNumber) => sets.forEach((s) => {
+    if (s.weight === '' || s.weight == null) return;
+    const next = convertWeight(s.weight, from, to);
+    s.weight = isNumber ? next : String(next);
+    touched++;
+  });
+
+  const preview = [];
+  state.sessions.forEach((sess) => sess.entries.forEach((e) => {
+    if (e.type === 'lifting') e.sets.forEach((s) => { if (s.weight !== '' && s.weight != null) preview.push(1); });
+  }));
+
+  if (preview.length && !confirm(
+    `Convert ${preview.length} recorded weight${preview.length === 1 ? '' : 's'} from ${from} to ${to}?\n\n`
+    + `Your numbers will be rewritten so they still mean the same load. Cancel to keep ${from}.`
+  )) {
+    render();   /* put the select back where it was */
+    return;
+  }
+
+  state.sessions.forEach((sess) => sess.entries.forEach((e) => {
+    if (e.type === 'lifting') convertSets(e.sets, false);
+  }));
+  state.routines.forEach((r) => r.items.forEach((it) => {
+    if (it.type === 'lifting' && Array.isArray(it.sets)) convertSets(it.sets, true);
+  }));
+  if (state.active) {
+    state.active.entries.forEach((e) => {
+      if (e.type === 'lifting') convertSets(e.sets, false);
+    });
+  }
+
+  /* The bar and any bodyweight log are in the same unit. */
+  state.settings.barWeight = convertWeight(state.settings.barWeight, from, to);
+  if (state.settings.goalWeight) {
+    state.settings.goalWeight = convertWeight(state.settings.goalWeight, from, to);
+  }
+  (state.weights || []).forEach((w) => { w.value = convertWeight(w.value, from, to); });
+
+  state.settings.units = to;
+  save();
+  render();
+  toast(`Converted ${touched} weight${touched === 1 ? '' : 's'} to ${to}`);
+}
+
+/* Exercise name is the join key for "last time", PRs and the progress chart, so
+   a typo or a routine rename silently forks an exercise's history in two.
+   This is the reconciliation tool. */
+function exerciseNameIndex() {
+  const index = new Map();
+  const bump = (name, type, where) => {
+    if (!index.has(name)) index.set(name, { name, type, sessions: 0, routines: 0 });
+    index.get(name)[where]++;
+  };
+  state.sessions.forEach((s) => s.entries.forEach((e) => bump(e.name, e.type, 'sessions')));
+  state.routines.forEach((r) => r.items.forEach((i) => bump(i.name, i.type, 'routines')));
+  return [...index.values()].sort((a, b) => (b.sessions + b.routines) - (a.sessions + a.routines));
+}
+
+function renameExerciseEverywhere(from, to) {
+  let touched = 0;
+  state.sessions.forEach((s) => s.entries.forEach((e) => {
+    if (e.name === from) { e.name = to; touched++; }
+  }));
+  state.routines.forEach((r) => r.items.forEach((i) => {
+    if (i.name === from) { i.name = to; touched++; }
+  }));
+  if (state.active) {
+    state.active.entries.forEach((e) => { if (e.name === from) e.name = to; });
+  }
+  return touched;
+}
+
+function openExerciseNames() {
+  const rows = exerciseNameIndex();
+
+  openSheet('Exercise names', `
+    <p class="small muted" style="margin-top:0">
+      "Last time", personal records and the progress chart all match on the exercise
+      name, so a typo splits one exercise into two histories. Rename one onto another
+      to merge them.
+    </p>
+    ${rows.length ? rows.map((r) => `
+      <button class="pick" data-action="rename-exercise" data-name="${esc(r.name)}">
+        <div class="grow">
+          <div class="nm">${esc(r.name)}</div>
+          <div class="card-sub">${r.sessions} logged${r.routines ? ` · in ${r.routines} routine${r.routines === 1 ? '' : 's'}` : ''}</div>
+        </div>
+        <span class="pill ${r.type}">${r.type}</span>
+      </button>`).join('')
+      : '<p class="muted small">Nothing logged yet.</p>'}`);
 }
 
 /* ----------------------------------------------------------- settings view */
@@ -1647,6 +1818,10 @@ function renderSettings() {
       <p class="small muted" style="margin:6px 0 12px">Readable anywhere — open on your phone, or
         email it to a coach. One row per set.</p>
 
+      <button class="btn block secondary" data-action="exercise-names">Exercise names</button>
+      <p class="small muted" style="margin:6px 0 12px">Fix a typo or merge two spellings of the
+        same lift, so its history stays in one piece.</p>
+
       <button class="btn block secondary" data-action="import">Import a file</button>
       <p class="small muted" style="margin:6px 0 0">Takes either format. A <code>.json</code> backup
         restores everything; a <code>.csv</code> brings in workouts, and asks whether to add them to
@@ -1704,6 +1879,7 @@ async function exportData() {
     settings: state.settings,
     routines: state.routines,
     sessions: state.sessions,
+    weights: state.weights,
     exportedAt: new Date().toISOString(),
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
@@ -1898,7 +2074,11 @@ document.addEventListener('click', (ev) => {
       break;
 
     case 'discard':
-      if (!confirm('Discard this workout? It will not be saved.')) return;
+      if (state.active.editingId) {
+        if (!confirm('Stop editing? Your saved workout stays as it was.')) return;
+      } else if (!confirm('Discard this workout? It will not be saved.')) {
+        return;
+      }
       state.active = null;
       stopTimer();
       save();
@@ -2302,6 +2482,81 @@ document.addEventListener('click', (ev) => {
       render();
       break;
 
+    /* ---- bodyweight ---- */
+    case 'log-weight':
+      openWeightSheet();
+      break;
+
+    case 'weight-save': {
+      const value = Number($('#weight-value').value);
+      const key = $('#weight-date').value;
+      if (!(value > 0)) { toast('Enter a weight first'); return; }
+      if (!key) { toast('Pick a date'); return; }
+
+      const when = keyToDate(key);
+      when.setHours(7, 0, 0, 0);
+      if (!state.weights) state.weights = [];
+
+      /* One reading per day — a second entry replaces the first rather than
+         double-counting it in the average. */
+      const existing = state.weights.find((w) => dayKey(w.date) === key);
+      if (existing) existing.value = value;
+      else state.weights.push({ id: uid(), date: when.toISOString(), value });
+
+      state.weights.sort((a, b) => +new Date(b.date) - +new Date(a.date));
+      save();
+      closeSheet();
+      go('data');
+      toast(existing ? 'Weight updated' : 'Weight logged');
+      break;
+    }
+
+    case 'weight-delete':
+      state.weights = (state.weights || []).filter((w) => w.id !== id);
+      save();
+      openWeightSheet();
+      break;
+
+    /* ---- exercise names ---- */
+    case 'exercise-names':
+      openExerciseNames();
+      break;
+
+    case 'rename-exercise': {
+      const from = btn.dataset.name;
+      const existing = exerciseNameIndex();
+      const current = existing.find((r) => r.name === from);
+      const to = (prompt(`Rename "${from}" to:`, from) || '').trim();
+      if (!to || to === from) return;
+
+      const clash = existing.find((r) => r.name === to);
+      if (clash && clash.type !== current.type) {
+        alert(`"${to}" is recorded as ${clash.type} and "${from}" as ${current.type}.\n\n`
+          + 'Merging those would mix incompatible sets, so this one is blocked.');
+        return;
+      }
+
+      const merging = !!clash;
+      if (merging && !confirm(`"${to}" already exists.\n\nMerge "${from}" into it? Their histories will be combined and this can't be undone without a backup.`)) {
+        return;
+      }
+
+      const touched = renameExerciseEverywhere(from, to);
+      save();
+      openExerciseNames();
+      toast(merging ? `Merged into ${to}` : `Renamed in ${touched} place${touched === 1 ? '' : 's'}`);
+      break;
+    }
+
+    /* ---- editing a logged workout ---- */
+    case 'edit-session': {
+      const session = state.sessions.find((s) => s.id === id);
+      if (!session) return;
+      if (state.active && !confirm('You have a workout in progress. Put it aside to edit this one?')) return;
+      startEditSession(session);
+      break;
+    }
+
     /* ---- data ---- */
     case 'data-range':
       dataRange = btn.dataset.val;
@@ -2432,6 +2687,15 @@ document.addEventListener('input', (ev) => {
 
   if (el.dataset.setting) {
     const key = el.dataset.setting;
+
+    /* Units are a real unit, not a label. Switching without converting would
+       turn every recorded 185 lb into "185 kg" — a 2.2x lie about the whole
+       training history. */
+    if (key === 'units' && el.value !== state.settings.units) {
+      switchUnits(el.value);
+      return;
+    }
+
     state.settings[key] = NUMERIC_SETTINGS.includes(key)
       ? Math.max(0, Number(el.value) || 0)
       : el.value;

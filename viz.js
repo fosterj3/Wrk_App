@@ -25,12 +25,6 @@ const RANGES = {
   'all': { label: 'All time' },
 };
 
-function startOfDay(d) {
-  const x = new Date(d);
-  x.setHours(0, 0, 0, 0);
-  return x;
-}
-
 function dayBuckets(start, n) {
   const buckets = [];
   for (let i = 0; i < n; i++) {
@@ -849,4 +843,98 @@ function csvToSessions(text) {
 /* Same key the export writes, to the minute — used to spot re-imports. */
 function sessionKeyOf(s) {
   return `${new Date(s.date).toISOString().slice(0, 16)}|${s.name}`;
+}
+
+/* --------------------------------------------------- bodyweight */
+
+/* Daily scale readings swing a few pounds on water alone, so the raw dots are
+   context and the rolling average is the actual signal. */
+function rollingAverage(entries, windowDays) {
+  const sorted = [...entries].sort((a, b) => +new Date(a.date) - +new Date(b.date));
+  const span = windowDays * 86400000;
+
+  return sorted.map((e) => {
+    const t = +new Date(e.date);
+    const inWindow = sorted.filter((o) => {
+      const ot = +new Date(o.date);
+      return ot <= t && ot > t - span;
+    });
+    const mean = inWindow.reduce((n, o) => n + Number(o.value), 0) / inWindow.length;
+    return { date: e.date, value: e.value, avg: Math.round(mean * 10) / 10 };
+  });
+}
+
+/**
+ * Weight over time: faint dots for each weigh-in, an accent line for the
+ * 7-day average. Not zero-based — a 6 lb move inside a 180 lb range is the
+ * whole story and would be invisible against zero.
+ */
+function weightChart(entries, unit) {
+  const rows = rollingAverage(entries, 7);
+  if (rows.length < 2) return '';
+
+  const values = rows.flatMap((r) => [Number(r.value), r.avg]);
+  const lo = Math.min(...values);
+  const hi = Math.max(...values);
+  const pad = (hi - lo) * 0.25 || 2;
+  const min = lo - pad;
+  const max = hi + pad;
+  const span = max - min || 1;
+
+  const first = +new Date(rows[0].date);
+  const last = +new Date(rows[rows.length - 1].date);
+  const range = last - first || 1;
+
+  const px = (d) => PAD.left + ((+new Date(d) - first) / range) * PLOT_W;
+  const py = (v) => PAD.top + PLOT_H - ((v - min) / span) * PLOT_H;
+
+  let grid = '';
+  for (let i = 0; i <= 3; i++) {
+    const v = min + (span / 3) * i;
+    const y = py(v);
+    grid += `<line class="viz-grid" x1="${PAD.left}" y1="${y}" x2="${W - PAD.right}" y2="${y}"/>`
+      + `<text class="viz-tick" x="${PAD.left - 6}" y="${y + 3.5}" text-anchor="end">${v.toFixed(0)}</text>`;
+  }
+
+  const dots = rows.map((r) => `
+    <circle class="viz-raw-dot" cx="${px(r.date).toFixed(1)}" cy="${py(Number(r.value)).toFixed(1)}" r="2.5"/>`).join('');
+
+  const line = rows.map((r, i) => `${i ? 'L' : 'M'}${px(r.date).toFixed(1)} ${py(r.avg).toFixed(1)}`).join(' ');
+
+  const endRow = rows[rows.length - 1];
+  const endX = px(endRow.date);
+  const endY = py(endRow.avg);
+
+  const hits = rows.map((r) => `
+    <circle class="viz-hit-dot" cx="${px(r.date).toFixed(1)}" cy="${py(Number(r.value)).toFixed(1)}" r="11"
+            data-tip="${esc(new Date(r.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }))}\n${esc(r.value)} ${esc(unit)}\n7-day avg ${esc(r.avg)}"/>`).join('');
+
+  const label = (d) => new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+
+  return `<svg class="viz" viewBox="0 0 ${W} ${H}" role="img" aria-label="Bodyweight over time">
+    ${grid}
+    <path class="viz-line" d="${line}"/>
+    ${dots}
+    <circle class="viz-dot" cx="${endX.toFixed(1)}" cy="${endY.toFixed(1)}" r="4.5"/>
+    <text class="viz-endlabel" x="${endX > W - 52 ? endX - 8 : endX + 8}" y="${endY - 8}"
+          text-anchor="${endX > W - 52 ? 'end' : 'start'}">${endRow.avg}</text>
+    ${hits}
+    <text class="viz-tick" x="${PAD.left}" y="${H - 9}" text-anchor="start">${esc(label(rows[0].date))}</text>
+    <text class="viz-tick" x="${W - PAD.right}" y="${H - 9}" text-anchor="end">${esc(label(endRow.date))}</text>
+  </svg>`;
+}
+
+/* Trend over the window: what the average moved, not what the scale said. */
+function weightTrend(entries, from, to) {
+  const inRange = entries.filter((e) => {
+    const t = +new Date(e.date);
+    return t >= +from && t < +to;
+  });
+  if (inRange.length < 2) return null;
+  const rows = rollingAverage(inRange, 7);
+  return {
+    latest: rows[rows.length - 1].avg,
+    change: Math.round((rows[rows.length - 1].avg - rows[0].avg) * 10) / 10,
+    count: inRange.length,
+  };
 }

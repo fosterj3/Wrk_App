@@ -26,8 +26,8 @@
     document.documentElement.setAttribute('data-theme', theme);
   })();
 </script>
-<link rel="stylesheet" href="styles.css?v=19">
-<link rel="stylesheet" href="landing.css?v=19">
+<link rel="stylesheet" href="styles.css?v=20">
+<link rel="stylesheet" href="landing.css?v=20">
 </head>
 <body class="landing">
 
@@ -143,6 +143,15 @@ Treadmill 20 min</pre>
         Both share the same log.</p>
     </div>
 
+    <div id="install-safari" class="feature" hidden style="margin-bottom:18px">
+      <h3>Open this page in Safari to install</h3>
+      <p>You're in <span id="ios-browser">another browser</span>. On iPhone only Safari can add a
+        real app — other browsers can make a shortcut, but it opens back in the browser instead of
+        running full screen and offline.</p>
+      <button class="btn" id="copy-link-btn" style="margin-top:10px">Copy link for Safari</button>
+      <span id="copy-done" class="small muted" style="margin-left:10px" hidden>Copied.</span>
+    </div>
+
     <p id="install-manual-lead">Open it, then:</p>
     <div class="install-grid">
       <div class="feature">
@@ -155,15 +164,16 @@ Treadmill 20 min</pre>
         </ol>
       </div>
       <div class="feature">
-        <h3>iPhone — Safari</h3>
+        <h3>iPhone — Safari only</h3>
         <ol class="steps">
           <li>Tap the <strong>Share</strong> icon. On newer iOS it sits behind the three-dot
             button <strong>&ctdot;</strong> beside the address bar.</li>
           <li>Scroll down and tap <strong>Add to Home Screen</strong>.</li>
           <li>Leave <strong>Open as Web App</strong> switched on, then tap <strong>Add</strong>.</li>
         </ol>
-        <p class="small muted" style="margin:10px 0 0">It has to be Safari — and with that toggle
-          off you get a plain bookmark instead of an app, so no full screen and no offline.</p>
+        <p class="small muted" style="margin:10px 0 0">Chrome, Firefox and Edge on iPhone cannot do
+          this — only Safari can. And with that toggle off you get a plain bookmark rather than an
+          app: no full screen, no offline.</p>
       </div>
     </div>
     <p class="small muted">Installed, it opens full screen and runs without a signal — useful in a
@@ -184,6 +194,7 @@ Treadmill 20 min</pre>
   </p>
 </footer>
 
+<script src="util.js?v=20"></script>
 <script>
   /* Someone with a log already doesn't need the sales pitch on the button. */
   (function () {
@@ -206,6 +217,28 @@ Treadmill 20 min</pre>
     var done = document.getElementById('install-done');
     var btn = document.getElementById('install-btn');
     var lead = document.getElementById('install-manual-lead');
+
+    /* On iOS only Safari can install a standalone web app. Anywhere else there
+       is no route at all, so point at Safari rather than letting someone hunt
+       for a button that will never appear. */
+    if (isIosWrongBrowser()) {
+      var safari = document.getElementById('install-safari');
+      document.getElementById('ios-browser').textContent = iosBrowserName();
+      safari.hidden = false;
+      lead.textContent = 'The steps below need Safari:';
+
+      document.getElementById('copy-link-btn').addEventListener('click', function () {
+        var url = new URL('app.html', location.href).href;
+        var flag = document.getElementById('copy-done');
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(url).then(function () {
+            flag.hidden = false;
+          }, function () { window.prompt('Copy this into Safari:', url); });
+        } else {
+          window.prompt('Copy this into Safari:', url);
+        }
+      });
+    }
 
     /* Chrome won't fire beforeinstallprompt for an app that's already
        installed, so "no button" on its own is ambiguous. getInstalledRelatedApps

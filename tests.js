@@ -46,6 +46,40 @@ describe('utilities', () => {
   check('round trip drifts less than 0.2', Math.abs(back - 225) < 0.2, `got ${back}`);
 });
 
+/* ---------------------------------------------------------------- platform */
+
+describe('platform detection', () => {
+  /* Only Safari can install a standalone web app on iOS. Getting this wrong
+     means sending someone hunting for a button that cannot exist. */
+  const original = Object.getOwnPropertyDescriptor(Navigator.prototype, 'userAgent');
+  const as = (ua) => Object.defineProperty(navigator, 'userAgent', { value: ua, configurable: true });
+  const IOS = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) ';
+
+  as(`${IOS}Version/18.0 Mobile/15E148 Safari/604.1`);
+  eq('iPhone Safari is recognised', iosBrowserName(), 'Safari');
+  check('iPhone Safari can install', !isIosWrongBrowser());
+
+  as(`${IOS}CriOS/131.0 Mobile/15E148 Safari/604.1`);
+  eq('iPhone Chrome is recognised', iosBrowserName(), 'Chrome');
+  check('iPhone Chrome cannot install', isIosWrongBrowser());
+
+  as(`${IOS}FxiOS/133.0 Mobile/15E148 Safari/605.1.15`);
+  eq('iPhone Firefox is recognised', iosBrowserName(), 'Firefox');
+
+  as(`${IOS}EdgiOS/131.0 Mobile/15E148 Safari/605.1.15`);
+  eq('iPhone Edge is recognised', iosBrowserName(), 'Edge');
+
+  as('Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36');
+  check('Android Chrome is not iOS', !isIos());
+  check('Android Chrome is not blocked', !isIosWrongBrowser());
+
+  as('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36');
+  check('desktop Chrome is not blocked', !isIosWrongBrowser());
+
+  delete navigator.userAgent;
+  if (original) Object.defineProperty(Navigator.prototype, 'userAgent', original);
+});
+
 /* ------------------------------------------------------------- the library */
 
 describe('exercise library', () => {

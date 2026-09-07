@@ -583,3 +583,16 @@ Two limits worth knowing. `getInstalledRelatedApps()` is Chrome-only, so on iOS 
 whether it is installed while you are looking at a tab, and falls back to the honest "unknown" copy.
 And the `related_applications` URL points at the deployed manifest, so detection does not work when
 serving from localhost — that is expected, not a bug.
+
+### iPhone: Safari only
+
+**On iOS, only Safari can create a real standalone web app.** Chrome, Firefox and Edge on iPhone all
+run WebKit underneath but cannot do it — Chrome has an "Add to Home Screen" buried in its menu, but
+the result opens back in Chrome rather than running full screen and offline. There is no API to
+change this and no button that could ever appear.
+
+So the app detects it and says so, on the landing page and in Settings: it names the browser you are
+actually in, explains that only Safari can do it, and offers a **Copy link for Safari** button rather
+than leaving you to hunt through a menu. Detection is by user-agent tag — `CriOS`, `FxiOS`, `EdgiOS`,
+`OPiOS`, `GSA`, `DuckDuckGo` — since every iOS browser otherwise claims to be Safari. There are tests
+for each of those in `tests.js`; user-agent sniffing is exactly the kind of thing that rots quietly.

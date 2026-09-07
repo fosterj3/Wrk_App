@@ -51,3 +51,38 @@ function convertWeight(value, from, to) {
   const converted = to === 'kg' ? n / LB_PER_KG : n * LB_PER_KG;
   return Math.round(converted * 10) / 10;
 }
+
+/* ------------------------------------------------------------- platform */
+
+function isIos() {
+  const ua = navigator.userAgent;
+  return /iPad|iPhone|iPod/.test(ua)
+    /* iPadOS 13+ reports itself as a Mac; touch points give it away. */
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
+/* Every browser on iOS runs WebKit, but only Safari can add a real standalone
+   web app — the others produce a shortcut that opens back in the browser.
+   Third-party browsers tag themselves in the user agent. */
+const IOS_BROWSER_TAGS = [
+  [/CriOS/, 'Chrome'],
+  [/FxiOS/, 'Firefox'],
+  [/EdgiOS/, 'Edge'],
+  [/OPiOS|OPT\//, 'Opera'],
+  [/GSA\//, 'the Google app'],
+  [/DuckDuckGo/, 'DuckDuckGo'],
+];
+
+/** @returns {string|null} Browser name on iOS, 'Safari' if none match, null off iOS. */
+function iosBrowserName() {
+  if (!isIos()) return null;
+  const ua = navigator.userAgent;
+  const hit = IOS_BROWSER_TAGS.find(([re]) => re.test(ua));
+  return hit ? hit[1] : 'Safari';
+}
+
+/** True on iOS in a browser that cannot install a standalone web app. */
+function isIosWrongBrowser() {
+  const name = iosBrowserName();
+  return !!name && name !== 'Safari';
+}

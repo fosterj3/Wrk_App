@@ -1826,6 +1826,22 @@ window.addEventListener('appinstalled', () => {
 function renderInstallCard() {
   if (isStandalone()) return '';                 /* you're in the installed app */
 
+  /* On iOS only Safari can produce a real standalone app. Anywhere else there
+     is genuinely no route, so say that rather than leaving someone hunting
+     through a menu for a button that will never be there. */
+  if (isIosWrongBrowser()) {
+    return `
+      <div class="card">
+        <div class="card-title">Open in Safari to install</div>
+        <p class="small muted" style="margin:6px 0 12px">
+          You're in ${esc(iosBrowserName())}. On iPhone only Safari can add a real app —
+          other browsers can make a shortcut, but it opens back in the browser instead of
+          running full screen and offline.
+        </p>
+        <button class="btn block secondary" data-action="copy-app-link">Copy link for Safari</button>
+      </div>`;
+  }
+
   if (installPrompt) {
     return `
       <div class="card">
@@ -2980,6 +2996,17 @@ document.addEventListener('click', (ev) => {
     case 'install-app':
       runInstallPrompt();
       break;
+
+    case 'copy-app-link': {
+      const url = new URL('app.html', location.href).href;
+      const done = () => toast('Link copied — paste it into Safari');
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(done, () => prompt('Copy this into Safari:', url));
+      } else {
+        prompt('Copy this into Safari:', url);
+      }
+      break;
+    }
 
     /* ---- alerts ---- */
     case 'alert-sound':

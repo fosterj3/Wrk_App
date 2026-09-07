@@ -37,6 +37,7 @@
   <section id="view-workout" class="view"></section>
   <section id="view-routines" class="view" hidden></section>
   <section id="view-calendar" class="view" hidden></section>
+  <section id="view-data" class="view" hidden></section>
   <section id="view-settings" class="view" hidden></section>
 </main>
 
@@ -54,6 +55,7 @@
   <button class="tab is-active" data-view="workout"><span class="tab-ico">&#9679;</span>Workout</button>
   <button class="tab" data-view="routines"><span class="tab-ico">&#9635;</span>Routines</button>
   <button class="tab" data-view="calendar"><span class="tab-ico">&#9638;</span>Calendar</button>
+  <button class="tab" data-view="data"><span class="tab-ico">&#9637;</span>Data</button>
   <button class="tab" data-view="settings"><span class="tab-ico">&#9881;</span>Settings</button>
 </nav>
 
@@ -68,9 +70,11 @@
   </div>
 </div>
 
+<div id="viz-tip" class="viz-tip" hidden></div>
 <div id="toast" class="toast" hidden></div>
 
 <script src="parse.js"></script>
+<script src="viz.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

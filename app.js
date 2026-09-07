@@ -204,6 +204,7 @@ const TITLES = {
   workout: 'Workout',
   routines: 'Routines',
   calendar: 'Calendar',
+  data: 'Data',
   settings: 'Settings',
 };
 
@@ -219,6 +220,7 @@ function render() {
   if (currentView === 'workout') renderWorkout();
   if (currentView === 'routines') renderRoutines();
   if (currentView === 'calendar') renderCalendar();
+  if (currentView === 'data') renderData();
   if (currentView === 'settings') renderSettings();
 }
 
@@ -838,6 +840,205 @@ function renderDayDetail(key, sessions) {
     </div>`;
 }
 
+/* --------------------------------------------------------------- data view */
+
+let dataRange = '12w';
+let dataExercise = null;
+let dataMetric = 'e1rm';
+
+function renderData() {
+  const el = $('#view-data');
+  $('#btn-header-action').hidden = true;
+
+  if (!state.sessions.length) {
+    el.innerHTML = `
+      <div class="empty">
+        <h3>No data yet</h3>
+        <p>Finish a workout or two and your charts will show up here.</p>
+      </div>`;
+    return;
+  }
+
+  const all = state.sessions;
+  const { mode, buckets } = makeBuckets(dataRange, all);
+  const from = buckets[0].start;
+  const to = buckets[buckets.length - 1].end;
+  const inRange = sessionsIn(all, from, to);
+  const now = new Date();
+
+  /* Same-length window immediately before this one, for the headline delta. */
+  const prevFrom = new Date(+from - (+to - +from));
+  const prev = sessionsIn(all, prevFrom, from).length;
+  const delta = inRange.length - prev;
+
+  const volume = inRange.reduce((n, s) => n + sessionVolume(s), 0);
+  const cardioMin = inRange.reduce((n, s) => n + sessionCardioMinutes(s), 0);
+  const perWeek = inRange.length / Math.max(1, buckets.length * (mode === 'month' ? 4.35 : 1));
+  const streak = currentStreak(all);
+
+  /* --- per-bucket series --- */
+  const freq = buckets.map((b) => {
+    const list = sessionsIn(all, b.start, b.end);
+    return {
+      label: b.label,
+      value: list.length,
+      partial: now >= b.start && now < b.end,
+      tip: `${b.full}\n${list.length} workout${list.length === 1 ? '' : 's'}`
+        + (now >= b.start && now < b.end ? '\n(still in progress)' : ''),
+    };
+  });
+
+  const volSeries = buckets.map((b) => {
+    const v = sessionsIn(all, b.start, b.end).reduce((n, s) => n + sessionVolume(s), 0);
+    return {
+      label: b.label,
+      value: v,
+      partial: now >= b.start && now < b.end,
+      tip: `${b.full}\n${compact(v)} ${state.settings.units} lifted`,
+    };
+  });
+
+  const cardioSeries = buckets.map((b) => {
+    const v = sessionsIn(all, b.start, b.end).reduce((n, s) => n + sessionCardioMinutes(s), 0);
+    return {
+      label: b.label,
+      value: Math.round(v),
+      partial: now >= b.start && now < b.end,
+      tip: `${b.full}\n${Math.round(v)} min of cardio`,
+    };
+  });
+
+  /* --- training split --- */
+  const kinds = { lifting: 0, cardio: 0, mixed: 0 };
+  inRange.forEach((s) => { kinds[sessionKind(s)]++; });
+  const splitSegments = [
+    { key: 'lifting', name: 'Lifting', value: kinds.lifting, tip: `Lifting only\n${kinds.lifting} workouts` },
+    { key: 'cardio', name: 'Cardio', value: kinds.cardio, tip: `Cardio only\n${kinds.cardio} workouts` },
+    { key: 'mixed', name: 'Both', value: kinds.mixed, tip: `Lifting and cardio\n${kinds.mixed} workouts` },
+  ];
+
+  /* --- strength progression --- */
+  const tracked = trackableExercises(all);
+  if (!dataExercise || !tracked.includes(dataExercise)) dataExercise = tracked[0] || null;
+  const progress = dataExercise
+    ? exerciseSeries(inRange, dataExercise, dataMetric).map((p) => ({
+        ...p,
+        tip: `${p.label}\n${p.value} ${state.settings.units}`
+          + (dataMetric === 'e1rm' ? ' est. 1RM' : ' top set'),
+      }))
+    : [];
+
+  const top = topExercises(inRange, 6).map((e) => ({
+    label: e.name.length > 20 ? `${e.name.slice(0, 19)}…` : e.name,
+    value: e.sets,
+    tip: `${e.name}\n${e.sets} set${e.sets === 1 ? '' : 's'}`,
+  }));
+
+  const unit = state.settings.units;
+  const hasLifting = volSeries.some((d) => d.value > 0);
+  const hasCardio = cardioSeries.some((d) => d.value > 0);
+
+  el.innerHTML = `
+    <div class="row" style="justify-content:center;margin-bottom:14px">
+      <div class="seg wrap">
+        ${Object.entries(RANGES).map(([k, r]) => `
+          <button data-action="data-range" data-val="${k}" class="${dataRange === k ? 'on' : ''}">${r.label}</button>`).join('')}
+      </div>
+    </div>
+
+    <div class="card center">
+      <div class="stat-label">Workouts &middot; ${esc(RANGES[dataRange].label.toLowerCase())}</div>
+      <div class="hero">${inRange.length}</div>
+      ${prev > 0 || inRange.length > 0 ? `
+        <div class="delta ${delta > 0 ? 'up' : delta < 0 ? 'down' : ''}">
+          ${delta > 0 ? '&uarr;' : delta < 0 ? '&darr;' : '&mdash;'}
+          ${delta === 0 ? 'same as' : `${Math.abs(delta)} vs`} previous ${esc(RANGES[dataRange].label.toLowerCase())}
+        </div>` : ''}
+    </div>
+
+    <div class="tiles">
+      <div class="card tile">
+        <div class="stat-label">Per week</div>
+        <div class="stat-value">${perWeek.toFixed(1)}</div>
+      </div>
+      <div class="card tile">
+        <div class="stat-label">Streak</div>
+        <div class="stat-value">${streak}<span class="stat-unit">wk</span></div>
+      </div>
+      <div class="card tile">
+        <div class="stat-label">Volume</div>
+        <div class="stat-value">${compact(volume)}<span class="stat-unit">${esc(unit)}</span></div>
+      </div>
+      <div class="card tile">
+        <div class="stat-label">Cardio</div>
+        <div class="stat-value">${compact(cardioMin)}<span class="stat-unit">min</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">How often you trained</div>
+      <div class="card-sub">Workouts per ${mode}</div>
+      ${columnChart(freq, (v) => v)}
+    </div>
+
+    ${kinds.lifting + kinds.cardio + kinds.mixed ? `
+    <div class="card">
+      <div class="card-title">What kind of training</div>
+      <div class="card-sub">${inRange.length} workout${inRange.length === 1 ? '' : 's'} by type</div>
+      ${stackedBar(splitSegments)}
+      <div class="viz-legend">
+        ${splitSegments.map((s) => `
+          <span><i class="k-${s.key}"></i>${s.name} <b>${s.value}</b></span>`).join('')}
+      </div>
+    </div>` : ''}
+
+    ${tracked.length ? `
+    <div class="card">
+      <div class="card-title">Strength progress</div>
+      <div class="card-sub">Best set each session, in ${esc(unit)}</div>
+      <div class="row wrap" style="margin:10px 0 4px">
+        <select class="text slim" data-select="exercise">
+          ${tracked.map((n) => `<option value="${esc(n)}" ${n === dataExercise ? 'selected' : ''}>${esc(n)}</option>`).join('')}
+        </select>
+        <div class="seg">
+          <button data-action="data-metric" data-val="e1rm" class="${dataMetric === 'e1rm' ? 'on' : ''}">Est. 1RM</button>
+          <button data-action="data-metric" data-val="top" class="${dataMetric === 'top' ? 'on' : ''}">Top set</button>
+        </div>
+      </div>
+      ${progress.length >= 2
+        ? columnOrLine(progress, unit)
+        : `<p class="small muted">Not enough sessions with ${esc(dataExercise || 'this exercise')} in this range yet — log it twice and the line appears.</p>`}
+      ${dataMetric === 'e1rm' && progress.length >= 2
+        ? '<p class="small muted" style="margin:8px 0 0">Estimated one-rep max (Epley), so heavy triples and lighter sets of ten stay comparable.</p>'
+        : ''}
+    </div>` : ''}
+
+    ${hasLifting ? `
+    <div class="card">
+      <div class="card-title">Lifting volume</div>
+      <div class="card-sub">Weight &times; reps, totalled per ${mode}</div>
+      ${columnChart(volSeries, (v) => compact(v))}
+    </div>` : ''}
+
+    ${hasCardio ? `
+    <div class="card">
+      <div class="card-title">Cardio minutes</div>
+      <div class="card-sub">Totalled per ${mode}</div>
+      ${columnChart(cardioSeries, (v) => compact(v))}
+    </div>` : ''}
+
+    ${top.length ? `
+    <div class="card">
+      <div class="card-title">Most-trained exercises</div>
+      <div class="card-sub">By sets logged</div>
+      ${barRows(top, (v) => v)}
+    </div>` : ''}`;
+}
+
+function columnOrLine(points, unit) {
+  return lineChart(points, (v) => `${compact(v)} ${unit}`);
+}
+
 /* ----------------------------------------------------------- settings view */
 
 function renderSettings() {
@@ -1259,6 +1460,19 @@ document.addEventListener('click', (ev) => {
       render();
       break;
 
+    /* ---- data ---- */
+    case 'data-range':
+      dataRange = btn.dataset.val;
+      hideTip();
+      render();
+      break;
+
+    case 'data-metric':
+      dataMetric = btn.dataset.val;
+      hideTip();
+      render();
+      break;
+
     /* ---- settings ---- */
     case 'theme':
       state.settings.theme = btn.dataset.val;
@@ -1298,6 +1512,12 @@ document.addEventListener('input', (ev) => {
     return;
   }
 
+  if (el.dataset.select === 'exercise') {
+    dataExercise = el.value;
+    render();
+    return;
+  }
+
   if (el.dataset.setting) {
     const key = el.dataset.setting;
     state.settings[key] = key === 'restSeconds' ? Math.max(0, Number(el.value) || 0) : el.value;
@@ -1305,7 +1525,52 @@ document.addEventListener('input', (ev) => {
   }
 });
 
-$$('.tab').forEach((tab) => tab.addEventListener('click', () => go(tab.dataset.view)));
+/* ---- chart tooltips ----
+   An SVG chart should be inspectable. Marks carry an oversized invisible hit
+   rect so a fingertip can land on them; the same handler covers mouse hover
+   and touch. */
+
+function hideTip() {
+  $('#viz-tip').hidden = true;
+}
+
+function showTip(target, clientX, clientY) {
+  const tip = $('#viz-tip');
+  tip.innerHTML = String(target.dataset.tip || '')
+    .split('\n')
+    .map((line, i) => `<span class="${i ? 'tip-sub' : 'tip-head'}">${esc(line)}</span>`)
+    .join('');
+  tip.hidden = false;
+
+  const box = tip.getBoundingClientRect();
+  const pad = 8;
+  let left = clientX - box.width / 2;
+  left = Math.max(pad, Math.min(left, window.innerWidth - box.width - pad));
+  let top = clientY - box.height - 14;
+  if (top < pad) top = clientY + 18;
+  tip.style.left = `${left}px`;
+  tip.style.top = `${top}px`;
+}
+
+document.addEventListener('pointermove', (ev) => {
+  const mark = ev.target.closest && ev.target.closest('[data-tip]');
+  if (mark) showTip(mark, ev.clientX, ev.clientY);
+  else if (ev.pointerType === 'mouse') hideTip();
+});
+
+document.addEventListener('pointerdown', (ev) => {
+  const mark = ev.target.closest && ev.target.closest('[data-tip]');
+  if (mark) showTip(mark, ev.clientX, ev.clientY);
+  else hideTip();
+});
+
+document.addEventListener('pointerup', (ev) => {
+  if (ev.pointerType !== 'mouse') setTimeout(hideTip, 2000);
+});
+
+window.addEventListener('scroll', hideTip, { passive: true });
+
+$$('.tab').forEach((tab) => tab.addEventListener('click', () => { hideTip(); go(tab.dataset.view); }));
 $('#rest-skip').addEventListener('click', stopRest);
 $('#rest-add').addEventListener('click', () => {
   rest.endsAt += 30000;

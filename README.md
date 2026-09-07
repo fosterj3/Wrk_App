@@ -12,6 +12,7 @@ Log lifting and cardio, save reusable routines, and time your rest between sets.
 - **Routines** — save a workout as a template ("Push Day A") and load it instead of retyping it every session.
 - **Rest timer** — starts automatically when you tick a set, with a chime and a vibration when it's up. Configurable, or off.
 - **Calendar** — month and week views showing which days you trained, colour-coded by what you did. Tap any day to see that day's workouts in full, or delete one.
+- **Data** — charts for how often you train, what kind, your strength progression per exercise, weekly volume and cardio, and your most-trained lifts.
 - **Dark and light themes** — royal purple on black, or purple on warm off-white. Follows your phone's setting on first run; switch it any time in Settings.
 - **Works offline** — a service worker caches the app, so it runs in the gym with no signal.
 
@@ -61,6 +62,7 @@ Then open <http://localhost:8080/>.
 | `index.html` | Page shell — tab bar, view containers, bottom sheet |
 | `app.js` | All app logic: state, storage, rendering, rest timer |
 | `parse.js` | Turns pasted free-form workout text into routines |
+| `viz.js` | Chart building and stats aggregation for the Data tab |
 | `styles.css` | Styling, dark theme, mobile-first layout |
 | `sw.js` | Service worker for offline use |
 | `manifest.webmanifest` | Makes it installable as a PWA |
@@ -136,3 +138,45 @@ drift apart.
 
 `index.html` sets `data-theme` in a small inline script before the stylesheet paints. Without it a
 light-mode user gets a black flash on every load.
+
+## The data tab
+
+Pick a window — 4 weeks, 12 weeks, 6 months, all time — and everything below re-reads:
+
+- **Headline** — workouts in the window, against the same-length window before it.
+- **Tiles** — workouts per week, current streak, total volume, cardio minutes.
+- **How often you trained** — workouts per week (per month once "all time" passes ~6 months).
+- **What kind of training** — lifting / cardio / both, as one stacked bar.
+- **Strength progress** — a line per exercise. Defaults to estimated 1RM (Epley) so a heavy
+  triple and a light set of ten stay comparable; switch to **Top set** for the raw heaviest weight.
+- **Lifting volume** and **Cardio minutes** — per week; each hides itself if you have no such data.
+- **Most-trained exercises** — by sets logged.
+
+Tap or hover any bar, point or segment for exact numbers.
+
+Two deliberate choices worth knowing:
+
+- **The strength chart doesn't start at zero.** Progressing 185 → 205 is invisible on a 0-based
+  axis. The axis is padded around the actual range instead, which is right for a progress line
+  and would be wrong for the volume bars — those *are* zero-based.
+- **The in-progress week is greyed, not hidden.** A half-finished week would otherwise read as a
+  collapse in training.
+
+### Chart colours
+
+The three series colours are **validated, not chosen by eye** — lightness band, chroma floor,
+protanopia/deuteranopia separation, normal-vision floor, and contrast against the card surface,
+in both themes:
+
+| | Lifting | Cardio | Both |
+| --- | --- | --- | --- |
+| Dark | `#8b5cf6` | `#c98500` | `#199e70` |
+| Light | `#6d28d9` | `#d97706` | `#166534` |
+
+These are also the calendar's dot colours — one meaning, one colour, app-wide. If you change them,
+re-run the validator rather than eyeballing; the first attempt failed on two counts (dark amber and
+green sat outside the dark lightness band, and light amber/green collapsed to ΔE 6.8 under
+protanopia, where 8 is the target).
+
+Note that SVG marks need `fill`, not `background` — the `.k-lifting` class that colours an HTML
+legend swatch will render an SVG path **black**.

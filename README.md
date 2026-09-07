@@ -472,3 +472,29 @@ the join key for "last time", personal-record detection and the strength-progres
 silently forks one exercise into two partial histories. Renaming an exercise inside a routine used
 to orphan its logged history the same way; this is the fix. Merging across incompatible types
 (a timed hold into a lifting exercise) is refused rather than corrupting the sets.
+
+## Removing an exercise mid-workout
+
+Swipe the exercise card **left** to reveal a red Delete, then tap it. There is no × in the card
+header any more: a tap target sitting next to the exercise name is far too easy to catch by accident
+with a phone in one hand between sets, and losing the sets you already logged is not a small mistake.
+
+The gesture is deliberately fussy about what counts as a swipe:
+
+- it only engages once horizontal travel exceeds vertical, so scrolling a long workout still scrolls
+- it never starts on an input, button or select — dragging across a weight field would otherwise
+  fight the keyboard
+- the card is `touch-action: pan-y`, so the browser keeps vertical scrolling and hands us the
+  horizontal axis
+- opening one card closes any other, and tapping elsewhere closes them all
+- the periodic elapsed-time re-render is skipped while a card is open, or it would slide shut as you
+  reach for Delete
+
+There is no confirmation dialog, because swiping open and then tapping Delete is already the two
+deliberate actions the dialog existed to force.
+
+**The Delete button is in the DOM at all times**, just positioned behind the card. That keeps it
+reachable by keyboard and screen reader without a swipe — and focusing it slides the card open so
+sighted keyboard users can see what they're about to press.
+
+Set rows still use a small `−` button; only exercises are behind the swipe.

@@ -154,7 +154,7 @@ input,select{font:inherit}
 .empty p{margin:0 0 16px}
 
 /* ---------- exercise / set rows ---------- */
-.ex{margin-top:12px}
+.ex{margin-top:0}
 .ex-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
 .ex-name{font-weight:650}
 .pill{
@@ -523,3 +523,31 @@ select.text.slim{width:auto;flex:1;min-width:150px;padding:8px 10px;font-size:13
 /* Raw weigh-ins are context behind the average line, so they're de-emphasised.
    Needs `fill` — an SVG circle ignores `background` and would default to black. */
 .viz-raw-dot{fill:var(--viz-dim)}
+
+/* ---------- swipe an exercise away ----------
+   The Delete button sits underneath the card, revealed by dragging left. It is
+   a real button in the DOM at all times, so keyboard and screen-reader users
+   reach it by tabbing — focusing it slides the card open so it's visible. */
+.ex-swipe{
+  position:relative;margin-top:12px;
+  border-radius:var(--radius);overflow:hidden;
+}
+.ex-delete{
+  position:absolute;top:0;right:0;bottom:0;width:96px;
+  border:0;background:var(--danger);color:#fff;
+  font-weight:700;font-size:14px;
+}
+.ex-swipe > .card{
+  position:relative;
+  transition:transform .18s ease;
+  touch-action:pan-y;      /* vertical scrolling stays with the page */
+  will-change:transform;
+}
+.ex-swipe.dragging > .card{transition:none}
+.ex-swipe.open > .card,
+.ex-delete:focus-visible + .card{transform:translateX(-96px)}
+
+.swipe-hint{
+  display:block;text-align:center;color:var(--muted);
+  font-size:12px;margin-top:12px;
+}

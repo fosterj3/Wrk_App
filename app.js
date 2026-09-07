@@ -661,6 +661,10 @@ function renderWorkout() {
 
     ${a.entries.map(renderEntry).join('')}
 
+    ${a.entries.length
+      ? '<span class="swipe-hint">Swipe an exercise left to remove it</span>'
+      : ''}
+
     <div style="margin-top:14px">
       <button class="btn block secondary" data-action="add-exercise">+ Add exercise</button>
     </div>
@@ -682,14 +686,19 @@ function renderEntry(entry) {
   const last = lastPerformance(state.sessions, entry.name);
   const isPr = (state.active.prs || []).includes(entry.name);
 
+  /* Removing an exercise is behind a swipe, not a button in the header. A tap
+     target next to the exercise name is far too easy to catch by accident with
+     a phone in one hand mid-set — and losing the sets you already logged is not
+     a small mistake. The button stays in the DOM so it's still reachable by
+     keyboard and screen reader; it just sits behind the card until revealed. */
   return `
-  <div class="card ex ${entry.type}" data-entry="${entry.id}">
+  <div class="ex-swipe" data-swipe="${entry.id}">
+    <button class="ex-delete" data-action="remove-entry" data-id="${entry.id}">Delete</button>
+    <div class="card ex ${entry.type}" data-entry="${entry.id}">
     <div class="ex-head">
       <span class="ex-name">${esc(entry.name)}</span>
       ${isPr ? '<span class="pill pr">PR</span>' : ''}
       <span class="pill ${entry.type}">${entry.type}</span>
-      <div class="spacer"></div>
-      <button class="icon-btn" data-action="remove-entry" data-id="${entry.id}" aria-label="Remove exercise">&times;</button>
     </div>
 
     ${last ? `
@@ -731,6 +740,7 @@ function renderEntry(entry) {
       ${entry.type === 'lifting'
         ? `<button class="ghost small" data-action="plates" data-id="${entry.id}">Plates</button>`
         : ''}
+    </div>
     </div>
   </div>`;
 }
@@ -2135,12 +2145,16 @@ document.addEventListener('click', (ev) => {
       render();
       break;
 
-    case 'remove-entry':
-      if (!confirm('Remove this exercise from the workout?')) return;
+    case 'remove-entry': {
+      /* No confirm dialog: swiping open and then tapping Delete is already two
+         deliberate actions, which is what the dialog was there to force. */
+      const gone = state.active.entries.find((e) => e.id === id);
       state.active.entries = state.active.entries.filter((e) => e.id !== id);
       save();
       render();
+      if (gone) toast(`Removed ${gone.name}`);
       break;
+    }
 
     case 'add-set': {
       const entry = state.active.entries.find((e) => e.id === id);
@@ -2703,6 +2717,72 @@ document.addEventListener('input', (ev) => {
   }
 });
 
+/* ---- swipe an exercise left to reveal Delete ----
+
+   Two deliberate actions instead of one stray tap. The gesture only engages on
+   a clearly horizontal drag, so vertical scrolling through a long workout still
+   works, and it never starts on an input or a button — otherwise dragging
+   across a weight field would fight the keyboard. */
+
+const SWIPE_REVEAL = 96;      /* must match .ex-delete width in styles.css */
+const SWIPE_START = 8;        /* px of travel before we claim the gesture */
+
+let swipe = null;
+
+function closeSwipes(except) {
+  $$('.ex-swipe.open').forEach((el) => { if (el !== except) el.classList.remove('open'); });
+}
+
+document.addEventListener('pointerdown', (ev) => {
+  const card = ev.target.closest && ev.target.closest('.ex-swipe > .card');
+  if (!card) { closeSwipes(); return; }
+  if (ev.target.closest('input, button, select, textarea, a')) return;
+
+  swipe = {
+    wrap: card.parentElement,
+    card,
+    x0: ev.clientX,
+    y0: ev.clientY,
+    dx: 0,
+    engaged: false,
+  };
+});
+
+document.addEventListener('pointermove', (ev) => {
+  if (!swipe) return;
+
+  const dx = ev.clientX - swipe.x0;
+  const dy = ev.clientY - swipe.y0;
+
+  if (!swipe.engaged) {
+    /* Let a vertical drag go to the scroller and drop the gesture entirely. */
+    if (Math.abs(dy) > Math.abs(dx)) { swipe = null; return; }
+    if (Math.abs(dx) < SWIPE_START) return;
+    swipe.engaged = true;
+    swipe.wrap.classList.add('dragging');
+    closeSwipes(swipe.wrap);
+  }
+
+  /* Left only, and never past the width of the button being revealed. */
+  const from = swipe.wrap.classList.contains('open') ? -SWIPE_REVEAL : 0;
+  swipe.dx = Math.max(-SWIPE_REVEAL, Math.min(0, from + dx));
+  swipe.card.style.transform = `translateX(${swipe.dx}px)`;
+});
+
+function endSwipe() {
+  if (!swipe) return;
+  const { wrap, card, dx, engaged } = swipe;
+  swipe = null;
+  if (!engaged) return;
+
+  wrap.classList.remove('dragging');
+  card.style.transform = '';
+  wrap.classList.toggle('open', dx < -SWIPE_REVEAL / 2);
+}
+
+document.addEventListener('pointerup', endSwipe);
+document.addEventListener('pointercancel', endSwipe);
+
 /* ---- chart tooltips ----
    An SVG chart should be inspectable. Marks carry an oversized invisible hit
    rect so a fingertip can land on them; the same handler covers mouse hover
@@ -2772,6 +2852,9 @@ setInterval(() => {
   if (!state.active || state.active.backdated) return;
   if (currentView !== 'workout' || !$('#sheet').hidden) return;
   if ($('#view-workout input:focus')) return;
+  /* Re-rendering rebuilds the list, which would slide a swiped-open card shut
+     while the user is reaching for Delete. */
+  if ($('.ex-swipe.open')) return;
   render();
 }, 30000);
 

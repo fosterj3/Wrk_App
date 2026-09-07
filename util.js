@@ -15,6 +15,11 @@ function uid() {
   return Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
 }
 
+/* "1 workout", not "1 workouts". Irregular plurals take the second argument. */
+function plural(n, word, many) {
+  return `${n} ${n === 1 ? word : (many || `${word}s`)}`;
+}
+
 /* Weeks start Sunday, matching the calendar grid. */
 function startOfWeek(d) {
   const x = new Date(d);

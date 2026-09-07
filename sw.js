@@ -3,7 +3,7 @@
    (landing) and app.html.
    The two must agree — that is what stops a new index.html from pairing with
    a stale app.js out of the browser's HTTP cache. */
-const ASSET_V = '22';
+const ASSET_V = '23';
 const CACHE = `cadence-v${ASSET_V}`;
 
 /* Same URLs the page actually requests, query string included, so the offline
@@ -19,6 +19,7 @@ const SHELL = [
   `./parse.js?v=${ASSET_V}`,
   `./plan.js?v=${ASSET_V}`,
   `./viz.js?v=${ASSET_V}`,
+  `./sync.js?v=${ASSET_V}`,
   `./app.js?v=${ASSET_V}`,
   './manifest.webmanifest',
   './icons/icon-192.png',

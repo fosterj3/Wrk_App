@@ -11,6 +11,21 @@ let group = 'general';
 
 function describe(name, fn) { group = name; fn(); }
 
+/* WebCrypto is async, so the transfer group can't run inline. These are queued
+   and run one at a time after the synchronous groups, which keeps the shared
+   `group` variable correct without threading it through every assertion. */
+const asyncGroups = [];
+function describeAsync(name, fn) { asyncGroups.push({ name, fn }); }
+
+async function throws(what, fn, expected) {
+  try {
+    await fn();
+    check(what, false, 'expected it to throw, but it returned');
+  } catch (err) {
+    check(what, !expected || err.message.includes(expected), `threw "${err.message}"`);
+  }
+}
+
 function check(what, pass, why) {
   results.push({ group, what, pass: !!pass, why: pass ? '' : why || '' });
 }
@@ -26,6 +41,10 @@ function eq(what, actual, expected) {
 describe('utilities', () => {
   eq('esc neutralises angle brackets', esc('<script>'), '&lt;script&gt;');
   eq('esc handles null', esc(null), '');
+
+  eq('one workout is singular', plural(1, 'workout'), '1 workout');
+  eq('two workouts are not', plural(2, 'workout'), '2 workouts');
+  eq('zero takes the plural', plural(0, 'routine'), '0 routines');
 
   /* dayKey must use local parts: toISOString() would file a late workout under
      tomorrow for anyone west of UTC. */
@@ -378,9 +397,87 @@ describe('stats', () => {
   eq('trend counts the weigh-ins', trend.count, 3);
 });
 
+/* ------------------------------------------------------- device transfer */
+
+describeAsync('device transfer', async () => {
+  /* The alphabet has no I, L, O or U precisely so these can be forgiven. */
+  eq('a typed code forgives the lookalikes',
+    normalizeTransferCode('4h2ko-il8n9'), '4H2K0118N9');
+  eq('spaces and dashes are ignored',
+    normalizeTransferCode(' 4H2K0 - 118N9 '), '4H2K0118N9');
+
+  check('a generated code is valid', isTransferCode(makeTransferCode()));
+  check('codes differ', makeTransferCode() !== makeTransferCode());
+  check('a short code is rejected', !isTransferCode('4H2K0'));
+  eq('a code is shown in two groups', formatTransferCode('4H2K0118N9'), '4H2K0-118N9');
+
+  /* Regression guard: String.fromCharCode(...bytes) blows the argument limit
+     on exactly the large logs this feature exists for. */
+  const big = new Uint8Array(400000);
+  /* Filled by hand: getRandomValues refuses more than 64KB in one call, and
+     the point here is the length, not the entropy. */
+  for (let i = 0; i < big.length; i++) big[i] = (i * 31 + 7) % 256;
+  const roundTripped = base64ToBytes(bytesToBase64(big));
+  check('base64 survives a 400KB log',
+    roundTripped.length === big.length
+    && roundTripped[0] === big[0]
+    && roundTripped[399999] === big[399999]);
+
+  const code = makeTransferCode();
+  const a = await deriveTransfer(code);
+  const b = await deriveTransfer(code);
+  eq('the same code finds the same place', a.docId, b.docId);
+  check('a different code does not', (await deriveTransfer(makeTransferCode())).docId !== a.docId);
+
+  /* The relay is told a hash, never the code, so a leaked list of document
+     names cannot be turned back into decryption keys. */
+  check('the relay never sees the code', !a.docId.includes(code) && a.docId.length === 32);
+
+  const payload = { sessions: [{ id: 's1', name: 'Push A' }], routines: [], weights: [] };
+  const sealed = await sealTransfer(payload, a.key);
+  check('the sealed blob is not readable',
+    !atob(sealed.blob).includes('Push A'));
+  eq('sealing round-trips', await openTransfer(sealed, a.key), payload);
+
+  const wrong = await deriveTransfer(makeTransferCode());
+  await throws('a wrong key fails closed', () => openTransfer(sealed, wrong.key));
+
+  /* A stand-in relay, so the whole flow is exercised without a network. */
+  const relay = new Map();
+  setTransferTransport({
+    async put(id, rec) { relay.set(id, { ...rec, expiresAt: new Date(Date.now() + 900000).toISOString() }); },
+    async get(id) { return relay.get(id) || null; },
+    async remove(id) { relay.delete(id); },
+  });
+
+  const sent = await sendTransfer(payload);
+  check('sending parks exactly one item', relay.size === 1);
+  eq('the code round-trips through the relay', await receiveTransfer(sent.code), payload);
+  check('claiming deletes the parked copy', relay.size === 0);
+
+  /* Lowercase with dashes is how someone actually types what they read. */
+  const second = await sendTransfer(payload);
+  eq('a code typed loosely still works',
+    await receiveTransfer(formatTransferCode(second.code).toLowerCase()), payload);
+
+  await throws('a claimed transfer is gone',
+    () => receiveTransfer(second.code), 'No transfer waiting');
+  await throws('a malformed code says so',
+    () => receiveTransfer('ABC'), '10 characters');
+  await throws('an unknown code says so',
+    () => receiveTransfer(makeTransferCode()), 'No transfer waiting');
+
+  const stale = await sendTransfer(payload);
+  const staleId = (await deriveTransfer(stale.code)).docId;
+  relay.set(staleId, { ...relay.get(staleId), expiresAt: new Date(Date.now() - 1000).toISOString() });
+  await throws('an expired transfer says so', () => receiveTransfer(stale.code), 'expired');
+});
+
 /* ----------------------------------------------------------------- report */
 
-(function report() {
+(async function report() {
+  for (const g of asyncGroups) { group = g.name; await g.fn(); }
+
   const out = document.getElementById('out');
   const failed = results.filter((r) => !r.pass);
   const groups = [...new Set(results.map((r) => r.group))];

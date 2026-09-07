@@ -2144,8 +2144,17 @@ document.addEventListener('pointerup', (ev) => {
 window.addEventListener('scroll', hideTip, { passive: true });
 
 $$('.tab').forEach((tab) => tab.addEventListener('click', () => { hideTip(); go(tab.dataset.view); }));
-$('#timer-stop').addEventListener('click', stopTimer);
-$('#timer-plus').addEventListener('click', () => {
+/* Bind defensively. A cached-HTML/new-JS mismatch used to throw here at the top
+   level, which killed the script before it rendered anything and left the app a
+   blank screen. A missing control is worth a warning, not a dead app. */
+function on(sel, ev, fn) {
+  const el = $(sel);
+  if (el) el.addEventListener(ev, fn);
+  else console.warn(`${sel} is missing — stale cached markup?`);
+}
+
+on('#timer-stop', 'click', stopTimer);
+on('#timer-plus', 'click', () => {
   if (timer.mode !== 'rest') return;
   timer.endsAt += 30000;
   timer.total += 30;
@@ -2172,8 +2181,23 @@ if (!state.settings.theme) {
 applyTheme();
 
 if ('serviceWorker' in navigator) {
+  /* When a new worker takes over, reload once so the page is running the same
+     version it just installed. Without this the update only appears on the
+     *second* refresh, which reads as "my changes didn't deploy". */
+  let reloading = false;
+  /* Only an *update* should reload. On a first visit the controller goes from
+     none to installed, which fires the same event and would reload for nothing. */
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || reloading) return;
+    reloading = true;
+    location.reload();
+  });
+
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js').catch((err) => console.warn('Service worker failed', err));
+    navigator.serviceWorker.register('sw.js')
+      .then((reg) => reg.update().catch(() => {}))
+      .catch((err) => console.warn('Service worker failed', err));
   });
 }
 

@@ -73,11 +73,23 @@ Then open <http://localhost:8080/>.
 | `manifest.webmanifest` | Makes it installable as a PWA |
 | `tools/serve.ps1` | Local static server for development |
 
-### A note on `sw.js`
+### Releasing a change
 
-The service worker caches the app shell under a versioned key. **After changing `index.html`,
-`app.js` or `styles.css`, bump `CACHE` in `sw.js`** (`wrk-v1` → `wrk-v2`) so installed copies pick
-up the new version instead of serving the old cache.
+GitHub Pages serves assets with `Cache-Control: max-age=600`, so a browser can hold an old
+`app.js` for ten minutes while already fetching the new `index.html`. That pairing is fatal — new
+markup with old script means missing elements and a blank screen. Two things prevent it, and they
+have to stay in step:
+
+1. `ASSET_V` in `sw.js`
+2. the `?v=` query on the `styles.css` / `parse.js` / `viz.js` / `app.js` tags in `index.html`
+
+**Bump both to the same number on every release.** A changed `?v=` is a new URL, so the browser
+cannot serve a stale copy of it, and `ASSET_V` names the cache so the old one is dropped.
+
+The service worker also fetches with `cache: no-cache`, forcing a revalidation rather than trusting
+a `max-age` copy, and installs with `cache: reload` so it can never bake a stale file into a fresh
+cache. When a new worker takes over, the page reloads once — otherwise an update only appears on
+the *second* refresh, which reads as "my deploy did not work".
 
 ## Not built yet
 

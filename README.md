@@ -497,4 +497,10 @@ deliberate actions the dialog existed to force.
 reachable by keyboard and screen reader without a swipe — and focusing it slides the card open so
 sighted keyboard users can see what they're about to press.
 
-Set rows still use a small `−` button; only exercises are behind the swipe.
+Set rows work the same way — swipe a single set left to delete it. Removing the trailing button
+column also gave the number fields noticeably more room. Deleting the last remaining set leaves a
+blank one behind rather than an exercise with no sets.
+
+Tabbing to a Delete button slides its row open so a keyboard user can see what they are about to
+press. That is done in JS on `focusin`, not with `:focus` in CSS, because that pseudo-class only
+matches while the whole document has focus.

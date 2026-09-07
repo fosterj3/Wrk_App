@@ -167,8 +167,8 @@ input,select{font:inherit}
 .set-grid{display:grid;gap:8px}
 .set-head,.set-row{display:grid;gap:8px;align-items:center}
 .set-head{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
-.lifting .set-head,.lifting .set-row{grid-template-columns:34px 1fr 1fr 44px 40px}
-.cardio  .set-head,.cardio  .set-row{grid-template-columns:34px 1fr 1fr 44px 40px}
+.lifting .set-head,.lifting .set-row{grid-template-columns:34px 1fr 1fr 44px}
+.cardio  .set-head,.cardio  .set-row{grid-template-columns:34px 1fr 1fr 44px}
 .set-n{color:var(--muted);text-align:center;font-variant-numeric:tabular-nums}
 
 input.cell{
@@ -486,7 +486,7 @@ select.text.slim{width:auto;flex:1;min-width:150px;padding:8px 10px;font-size:13
 .backdate-bar strong{color:var(--accent-fg)}
 
 /* ---------- timed exercises + timer ---------- */
-.timed .set-head,.timed .set-row{grid-template-columns:34px 1fr 44px 44px 40px}
+.timed .set-head,.timed .set-row{grid-template-columns:34px 1fr 44px 44px}
 .pill.timed{color:var(--good);border-color:var(--done-line)}
 .timer-btn{font-size:14px}
 .timer-btn.on{background:var(--danger);border-color:var(--danger);color:#fff}
@@ -524,28 +524,35 @@ select.text.slim{width:auto;flex:1;min-width:150px;padding:8px 10px;font-size:13
    Needs `fill` — an SVG circle ignores `background` and would default to black. */
 .viz-raw-dot{fill:var(--viz-dim)}
 
-/* ---------- swipe an exercise away ----------
-   The Delete button sits underneath the card, revealed by dragging left. It is
-   a real button in the DOM at all times, so keyboard and screen-reader users
-   reach it by tabbing — focusing it slides the card open so it's visible. */
-.ex-swipe{
-  position:relative;margin-top:12px;
-  border-radius:var(--radius);overflow:hidden;
-}
-.ex-delete{
-  position:absolute;top:0;right:0;bottom:0;width:96px;
+/* ---------- swipe left to delete ----------
+   Used for both an exercise card and a single set row. The Delete button sits
+   underneath and is a real button in the DOM at all times, so keyboard and
+   screen-reader users reach it by tabbing — focusing it slides the face open so
+   it's visible before it's pressed. */
+.swipe-wrap{position:relative;overflow:hidden}
+.swipe-del{
+  position:absolute;top:1px;right:1px;bottom:1px;width:96px;
+  border-radius:inherit;
+  /* Inset by a pixel: at identical radii the two curves antialias against each
+     other and a red hairline shows along the face's rounded corner. */
   border:0;background:var(--danger);color:#fff;
   font-weight:700;font-size:14px;
 }
-.ex-swipe > .card{
+.swipe-wrap > .swipe-face{
   position:relative;
   transition:transform .18s ease;
-  touch-action:pan-y;      /* vertical scrolling stays with the page */
+  touch-action:pan-y;         /* vertical scrolling stays with the page */
   will-change:transform;
 }
-.ex-swipe.dragging > .card{transition:none}
-.ex-swipe.open > .card,
-.ex-delete:focus-visible + .card{transform:translateX(-96px)}
+.swipe-wrap.dragging > .swipe-face{transition:none;user-select:none}
+.swipe-wrap.open > .swipe-face{transform:translateX(-96px)}
+
+.ex-swipe{margin-top:12px;border-radius:var(--radius)}
+
+/* A set row is transparent by default, which would let the red panel show
+   through the gaps between inputs. It needs its own opaque background. */
+.set-swipe{border-radius:10px}
+.set-swipe > .set-row{background:var(--surface)}
 
 .swipe-hint{
   display:block;text-align:center;color:var(--muted);

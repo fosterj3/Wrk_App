@@ -662,7 +662,7 @@ function renderWorkout() {
     ${a.entries.map(renderEntry).join('')}
 
     ${a.entries.length
-      ? '<span class="swipe-hint">Swipe an exercise left to remove it</span>'
+      ? '<span class="swipe-hint">Swipe an exercise or a set left to remove it</span>'
       : ''}
 
     <div style="margin-top:14px">
@@ -677,9 +677,11 @@ function renderEntry(entry) {
   const isCardio = entry.type === 'cardio';
   const isTimed = entry.type === 'timed';
   const unit = state.settings.units === 'kg' ? 'Kg' : 'Lb';
-  const cols = isTimed ? ['#', 'Seconds', '', '', '']
-    : isCardio ? ['#', 'Distance', 'Min', '', '']
-    : ['#', unit, 'Reps', '', ''];
+  /* Four columns now that delete is a swipe rather than a trailing button —
+     which gives the number fields noticeably more room. */
+  const cols = isTimed ? ['#', 'Seconds', '', '']
+    : isCardio ? ['#', 'Distance', 'Min', '']
+    : ['#', unit, 'Reps', ''];
 
   /* What you did last time is the reason to open the app mid-session, so it
      sits directly above the inputs rather than behind a tap. */
@@ -692,9 +694,10 @@ function renderEntry(entry) {
      a small mistake. The button stays in the DOM so it's still reachable by
      keyboard and screen reader; it just sits behind the card until revealed. */
   return `
-  <div class="ex-swipe" data-swipe="${entry.id}">
-    <button class="ex-delete" data-action="remove-entry" data-id="${entry.id}">Delete</button>
-    <div class="card ex ${entry.type}" data-entry="${entry.id}">
+  <div class="ex-swipe swipe-wrap">
+    <button class="swipe-del" data-action="remove-entry" data-id="${entry.id}"
+            aria-label="Delete ${esc(entry.name)}">Delete</button>
+    <div class="card ex swipe-face ${entry.type}" data-entry="${entry.id}">
     <div class="ex-head">
       <span class="ex-name">${esc(entry.name)}</span>
       ${isPr ? '<span class="pill pr">PR</span>' : ''}
@@ -726,11 +729,14 @@ function renderEntry(entry) {
                     value="${esc(isCardio ? s.minutes : s.reps)}">`;
 
         return `
-        <div class="set-row ${s.done ? 'done' : ''}" data-set="${s.id}">
-          <div class="set-n">${i + 1}</div>
-          ${cells}
-          <button class="check ${s.done ? 'on' : ''}" data-action="toggle-set" aria-label="Mark set done">&#10003;</button>
-          <button class="icon-btn" data-action="remove-set" aria-label="Remove set">&minus;</button>
+        <div class="set-swipe swipe-wrap">
+          <button class="swipe-del" data-action="remove-set" data-entry-id="${entry.id}" data-id="${s.id}"
+                  aria-label="Delete set ${i + 1}">Delete</button>
+          <div class="set-row swipe-face ${s.done ? 'done' : ''}" data-set="${s.id}">
+            <div class="set-n">${i + 1}</div>
+            ${cells}
+            <button class="check ${s.done ? 'on' : ''}" data-action="toggle-set" aria-label="Mark set ${i + 1} done">&#10003;</button>
+          </div>
         </div>`;
       }).join('')}
     </div>
@@ -2165,8 +2171,11 @@ document.addEventListener('click', (ev) => {
     }
 
     case 'remove-set': {
-      const { entry } = findSet(card.dataset.entry, row.dataset.set);
-      entry.sets = entry.sets.filter((s) => s.id !== row.dataset.set);
+      /* The Delete button now sits beside the row rather than inside it, so the
+         ids come off the button itself — closest('[data-set]') would miss. */
+      const entry = state.active.entries.find((e) => e.id === btn.dataset.entryId);
+      if (!entry) return;
+      entry.sets = entry.sets.filter((s) => s.id !== id);
       if (!entry.sets.length) entry.sets.push(newSet(entry.type));
       save();
       render();
@@ -2724,23 +2733,30 @@ document.addEventListener('input', (ev) => {
    works, and it never starts on an input or a button — otherwise dragging
    across a weight field would fight the keyboard. */
 
-const SWIPE_REVEAL = 96;      /* must match .ex-delete width in styles.css */
+const SWIPE_REVEAL = 96;      /* must match .swipe-del width in styles.css */
 const SWIPE_START = 8;        /* px of travel before we claim the gesture */
 
 let swipe = null;
 
 function closeSwipes(except) {
-  $$('.ex-swipe.open').forEach((el) => { if (el !== except) el.classList.remove('open'); });
+  $$('.swipe-wrap.open').forEach((el) => { if (el !== except) el.classList.remove('open'); });
 }
 
 document.addEventListener('pointerdown', (ev) => {
-  const card = ev.target.closest && ev.target.closest('.ex-swipe > .card');
-  if (!card) { closeSwipes(); return; }
-  if (ev.target.closest('input, button, select, textarea, a')) return;
+  const face = ev.target.closest && ev.target.closest('.swipe-face');
+  if (!face) { closeSwipes(); return; }
 
+  /* Buttons are excluded so a tap on the done-tick or Delete stays a tap.
+     Inputs are NOT excluded: a set row is almost entirely number fields, so
+     excluding them would leave nowhere to start the gesture. A tap still
+     focuses normally, because nothing engages until the finger travels. */
+  if (ev.target.closest('button, select, a')) return;
+
+  /* closest() picks the innermost face, so dragging a set row swipes the row
+     and dragging the card header swipes the whole exercise. */
   swipe = {
-    wrap: card.parentElement,
-    card,
+    wrap: face.parentElement,
+    card: face,
     x0: ev.clientX,
     y0: ev.clientY,
     dx: 0,
@@ -2782,6 +2798,21 @@ function endSwipe() {
 
 document.addEventListener('pointerup', endSwipe);
 document.addEventListener('pointercancel', endSwipe);
+
+/* Tabbing to a Delete button slides its row open, so a keyboard user can see
+   what they are about to press. Done in JS rather than with `:focus` in CSS
+   because that pseudo-class only matches while the whole document has focus,
+   which makes the behaviour hard to rely on. */
+document.addEventListener('focusin', (ev) => {
+  const del = ev.target.closest && ev.target.closest('.swipe-del');
+  closeSwipes(del ? del.parentElement : null);
+  if (del) del.parentElement.classList.add('open');
+});
+
+document.addEventListener('focusout', (ev) => {
+  const del = ev.target.closest && ev.target.closest('.swipe-del');
+  if (del) del.parentElement.classList.remove('open');
+});
 
 /* ---- chart tooltips ----
    An SVG chart should be inspectable. Marks carry an oversized invisible hit
@@ -2854,7 +2885,7 @@ setInterval(() => {
   if ($('#view-workout input:focus')) return;
   /* Re-rendering rebuilds the list, which would slide a swiped-open card shut
      while the user is reaching for Delete. */
-  if ($('.ex-swipe.open')) return;
+  if ($('.swipe-wrap.open')) return;
   render();
 }, 30000);
 

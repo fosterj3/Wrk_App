@@ -325,8 +325,40 @@ and downloaded if sharing isn't available:
 | Format | For |
 | --- | --- |
 | `.json` | The restoreable backup. This is the one to keep, and the one Import reads. |
-| `.csv` | Reading and sending. One row per set, opens in any spreadsheet. |
+| `.csv` | Reading, sending — and importing back. One row per set, opens in any spreadsheet. |
 
 The CSV has columns `Date, Time, Workout, Exercise, Type, Set, Weight, Reps, Distance, Minutes,
 Seconds` and is written oldest-first with a UTF-8 BOM, so Excel opens it correctly instead of
 mangling non-ASCII exercise names.
+
+### Importing a CSV back in
+
+**Settings → Import a file** takes either format, decided by content rather than file extension.
+A `.json` backup restores everything. A `.csv` holds workouts but no routines, goals or settings,
+so it can't be a blanket "replace everything" — instead it shows what it read and offers two
+choices:
+
+- **Add to my log** — merges, skipping anything already there. Duplicates are matched on date, time
+  and workout name, so importing the same file twice adds nothing the second time.
+- **Replace my workouts** — swaps out the workout history only. Routines, goals and settings survive.
+
+The reader is deliberately forgiving, so a spreadsheet you edited by hand (or one shaped from
+another app) still lands:
+
+- Header names are matched loosely — `Session`/`Workout`, `Movement`/`Exercise`, `Load (kg)`/`Weight`,
+  `Rep`/`Reps`, `Dist`/`Distance`, `Duration`/`Minutes`, `Hold`/`Seconds`.
+- Dates accept `YYYY-MM-DD` and `M/D/YYYY` (US order). A missing time becomes midday, for the same
+  timezone reason backdated workouts use midday.
+- With no `Type` column the type is inferred: seconds filled in means a hold, distance or minutes
+  means cardio, otherwise weight and reps.
+- Rows with no exercise name or an unreadable date are counted and reported, not silently dropped.
+
+Export → import is lossless for everything the CSV carries; verified round-trip including quoted
+workout names containing commas, multiple set rows per exercise, and all three exercise types in
+one session. Session duration isn't in the CSV, so re-imported workouts show no duration.
+
+### The home button
+
+The app's top-right corner links back to the landing page. It points at `index.html?from=app`
+rather than plain `index.html`: the landing page sends home-screen launches straight to the app, so
+without that marker an installed user would tap Home and be bounced immediately back.

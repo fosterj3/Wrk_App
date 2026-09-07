@@ -1546,7 +1546,10 @@ function renderSettings() {
       <p class="small muted" style="margin:6px 0 12px">Readable anywhere — open on your phone, or
         email it to a coach. One row per set.</p>
 
-      <button class="btn block secondary" data-action="import">Import backup file</button>
+      <button class="btn block secondary" data-action="import">Import a file</button>
+      <p class="small muted" style="margin:6px 0 0">Takes either format. A <code>.json</code> backup
+        restores everything; a <code>.csv</code> brings in workouts, and asks whether to add them to
+        your log or replace it.</p>
       <button class="btn block danger" data-action="wipe" style="margin-top:14px">Erase all data</button>
     </div>
 
@@ -1617,31 +1620,24 @@ async function exportCsv() {
   if (result === 'downloaded') toast('Spreadsheet saved');
 }
 
+let pendingCsv = null;
+
 function importData() {
   const input = document.createElement('input');
   input.type = 'file';
-  input.accept = 'application/json,.json';
+  input.accept = '.json,.csv,application/json,text/csv';
 
   input.onchange = () => {
     const file = input.files && input.files[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
+      const text = String(reader.result);
+      /* Decide by content, not extension — a file renamed to .txt still works. */
+      const looksJson = text.replace(/^﻿/, '').trimStart().startsWith('{');
       try {
-        const data = JSON.parse(String(reader.result));
-        if (!Array.isArray(data.sessions) || !Array.isArray(data.routines)) {
-          throw new Error('this does not look like a Cadence backup');
-        }
-        if (!confirm(`Replace everything on this device with ${data.sessions.length} workouts and ${data.routines.length} routines?`)) return;
-        state = {
-          ...clone(DEFAULTS),
-          ...data,
-          settings: { ...DEFAULTS.settings, ...(data.settings || {}) },
-          active: null,
-        };
-        save();
-        render();
-        toast('Backup restored');
+        if (looksJson) importJsonBackup(text);
+        else importCsvFile(text);
       } catch (err) {
         console.error(err);
         alert(`Could not read that file: ${err.message}`);
@@ -1651,6 +1647,85 @@ function importData() {
   };
 
   input.click();
+}
+
+function importJsonBackup(text) {
+  const data = JSON.parse(text);
+  if (!Array.isArray(data.sessions) || !Array.isArray(data.routines)) {
+    throw new Error('this does not look like a Cadence backup');
+  }
+  if (!confirm(`Replace everything on this device with ${data.sessions.length} workouts and ${data.routines.length} routines?`)) return;
+  state = {
+    ...clone(DEFAULTS),
+    ...data,
+    settings: { ...DEFAULTS.settings, ...(data.settings || {}) },
+    active: null,
+  };
+  save();
+  render();
+  toast('Backup restored');
+}
+
+/**
+ * A CSV holds workouts but no routines or settings, so it can't be a blanket
+ * "replace everything". The user picks: add to what's here, or replace only
+ * the workout history.
+ */
+function importCsvFile(text) {
+  const parsed = csvToSessions(text);
+  if (!parsed.sessions.length) {
+    throw new Error('no workouts could be read from that file');
+  }
+
+  const existing = new Set(state.sessions.map(sessionKeyOf));
+  const fresh = parsed.sessions.filter((s) => !existing.has(sessionKeyOf(s)));
+  const dupes = parsed.sessions.length - fresh.length;
+
+  pendingCsv = { ...parsed, fresh, dupes };
+
+  const dates = parsed.sessions.map((s) => +new Date(s.date));
+  const span = `${new Date(Math.min(...dates)).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`
+    + ` – ${new Date(Math.max(...dates)).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`;
+  const totalSets = parsed.sessions.reduce(
+    (n, s) => n + s.entries.reduce((m, e) => m + e.sets.length, 0), 0
+  );
+
+  openSheet('Import from spreadsheet', `
+    <p class="small muted" style="margin-top:0">
+      Read <strong>${parsed.sessions.length} workout${parsed.sessions.length === 1 ? '' : 's'}</strong>
+      and ${totalSets} set${totalSets === 1 ? '' : 's'}, ${esc(span)}.
+    </p>
+
+    ${dupes ? `<div class="warnbox">
+      <strong>${dupes} already in your log</strong>
+      Matched on date, time and workout name. Adding will skip them, so importing
+      the same file twice won't duplicate anything.
+    </div>` : ''}
+
+    ${parsed.skipped ? `<div class="warnbox">
+      <strong>${parsed.skipped} row${parsed.skipped === 1 ? '' : 's'} skipped</strong>
+      Missing an exercise name or an unreadable date.
+    </div>` : ''}
+
+    <div class="card" style="margin-top:12px">
+      <div class="card-sub">First few</div>
+      ${parsed.sessions.slice(0, 4).map((s) => `
+        <div class="small" style="margin-top:8px">
+          <span style="font-weight:600">${esc(s.name)}</span>
+          <span class="muted"> · ${esc(new Date(s.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }))}
+            · ${s.entries.map((e) => esc(e.name)).join(', ')}</span>
+        </div>`).join('')}
+      ${parsed.sessions.length > 4 ? `<p class="small muted" style="margin:8px 0 0">…and ${parsed.sessions.length - 4} more.</p>` : ''}
+    </div>
+
+    <button class="btn block" data-action="csv-merge" style="margin-top:14px">
+      Add ${fresh.length} to my log
+    </button>
+    <button class="btn block secondary" data-action="csv-replace" style="margin-top:8px">
+      Replace my ${state.sessions.length} workout${state.sessions.length === 1 ? '' : 's'}
+    </button>
+    <p class="small muted" style="margin:10px 0 0">Replacing swaps out your workout history only —
+      routines, goals and settings are untouched.</p>`);
 }
 
 /* --------------------------------------------------------- exercise picker */
@@ -2120,6 +2195,33 @@ document.addEventListener('click', (ev) => {
     case 'import':
       importData();
       break;
+
+    case 'csv-merge': {
+      if (!pendingCsv) return;
+      const added = pendingCsv.fresh.length;
+      state.sessions = state.sessions.concat(pendingCsv.fresh)
+        .sort((a, b) => +new Date(b.date) - +new Date(a.date));
+      pendingCsv = null;
+      save();
+      closeSheet();
+      go('calendar');
+      toast(added ? `Added ${added} workout${added === 1 ? '' : 's'}` : 'Nothing new to add');
+      break;
+    }
+
+    case 'csv-replace': {
+      if (!pendingCsv) return;
+      if (!confirm(`Replace your ${state.sessions.length} logged workouts with the ${pendingCsv.sessions.length} in this file?`)) return;
+      state.sessions = pendingCsv.sessions
+        .slice()
+        .sort((a, b) => +new Date(b.date) - +new Date(a.date));
+      pendingCsv = null;
+      save();
+      closeSheet();
+      go('calendar');
+      toast('History replaced');
+      break;
+    }
 
     case 'wipe':
       if (!confirm('Erase every workout, routine and setting on this device? This cannot be undone.')) return;

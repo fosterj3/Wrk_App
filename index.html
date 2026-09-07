@@ -13,7 +13,10 @@
   (function () {
     var standalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
       || window.navigator.standalone === true;
-    if (standalone) { location.replace('app.html'); return; }
+    /* ?from=app means they tapped the home button on purpose — don't bounce
+       them straight back to the app they just left. */
+    var deliberate = location.search.indexOf('from=app') !== -1;
+    if (standalone && !deliberate) { location.replace('app.html'); return; }
     var theme = 'dark';
     try {
       var saved = JSON.parse(localStorage.getItem('wrk.v1') || '{}');
@@ -23,8 +26,8 @@
     document.documentElement.setAttribute('data-theme', theme);
   })();
 </script>
-<link rel="stylesheet" href="styles.css?v=11">
-<link rel="stylesheet" href="landing.css?v=11">
+<link rel="stylesheet" href="styles.css?v=12">
+<link rel="stylesheet" href="landing.css?v=12">
 </head>
 <body class="landing">
 

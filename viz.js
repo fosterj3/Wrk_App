@@ -690,3 +690,163 @@ function buildCsv(sessions, units) {
   /* Leading BOM so Excel opens it as UTF-8 rather than mangling any accents. */
   return `\ufeff${rows.join('\r\n')}\r\n`;
 }
+
+/* ------------------------------------------------------- csv import */
+
+/* A real CSV reader: fields can be quoted, and a quoted field can contain
+   commas, newlines and escaped quotes. Splitting on ',' would corrupt a
+   workout called "Run, easy". */
+function parseCsvRows(text) {
+  const s = String(text).replace(/^\ufeff/, '');
+  const rows = [];
+  let row = [];
+  let field = '';
+  let quoted = false;
+
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (quoted) {
+      if (c !== '"') { field += c; continue; }
+      if (s[i + 1] === '"') { field += '"'; i++; continue; }   /* "" is one quote */
+      quoted = false;
+    } else if (c === '"') {
+      quoted = true;
+    } else if (c === ',') {
+      row.push(field); field = '';
+    } else if (c === '\n') {
+      row.push(field); field = '';
+      rows.push(row); row = [];
+    } else if (c !== '\r') {
+      field += c;
+    }
+  }
+  if (field !== '' || row.length) { row.push(field); rows.push(row); }
+
+  return rows.filter((r) => r.some((cell) => cell.trim() !== ''));
+}
+
+/* Header names we recognise. Tolerant so a hand-edited or foreign CSV still
+   lands: "Weight (lb)" and "weight" are the same column. */
+const CSV_COLUMNS = {
+  date: 'date',
+  time: 'time',
+  workout: 'workout', session: 'workout',
+  exercise: 'exercise', name: 'exercise', movement: 'exercise',
+  type: 'type',
+  set: 'set',
+  weight: 'weight', load: 'weight', kg: 'weight', lb: 'weight', lbs: 'weight',
+  reps: 'reps', rep: 'reps',
+  distance: 'distance', dist: 'distance',
+  minutes: 'minutes', min: 'minutes', mins: 'minutes', duration: 'minutes',
+  seconds: 'seconds', sec: 'seconds', secs: 'seconds', hold: 'seconds',
+};
+
+function csvColumn(header) {
+  const clean = String(header)
+    .toLowerCase()
+    .replace(/\(.*?\)/g, ' ')      /* drop the unit in "Weight (lb)" */
+    .replace(/[^a-z]+/g, ' ')
+    .trim();
+  return CSV_COLUMNS[clean] || null;
+}
+
+/* Accepts YYYY-MM-DD and M/D/YYYY (US order), else lets Date try. Built in
+   local time so a session can't drift into the neighbouring day. */
+function csvDateToIso(date, time) {
+  let y;
+  let m;
+  let d;
+
+  let hit = String(date).trim().match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (hit) { y = +hit[1]; m = +hit[2]; d = +hit[3]; }
+
+  if (!hit) {
+    hit = String(date).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (hit) { m = +hit[1]; d = +hit[2]; y = +hit[3]; }
+  }
+
+  if (!hit) {
+    const loose = new Date(date);
+    if (isNaN(+loose)) return null;
+    y = loose.getFullYear(); m = loose.getMonth() + 1; d = loose.getDate();
+  }
+
+  const t = String(time || '').match(/^(\d{1,2}):(\d{2})/);
+  const dt = new Date(y, m - 1, d, t ? +t[1] : 12, t ? +t[2] : 0, 0, 0);
+  return isNaN(+dt) ? null : dt.toISOString();
+}
+
+/**
+ * Turn exported-CSV text back into sessions.
+ * @returns {{sessions: Array, skipped: number, rows: number}}
+ * @throws if the file has no usable Exercise column.
+ */
+function csvToSessions(text) {
+  const rows = parseCsvRows(text);
+  if (rows.length < 2) throw new Error('there are no rows in that file');
+
+  const mapped = rows[0].map(csvColumn);
+  if (!mapped.includes('exercise')) {
+    throw new Error('no "Exercise" column — is this a Cadence CSV?');
+  }
+
+  const at = {};
+  mapped.forEach((key, i) => { if (key && at[key] === undefined) at[key] = i; });
+  const cell = (r, key) => (at[key] === undefined ? '' : String(r[at[key]] ?? '').trim());
+
+  const byKey = new Map();
+  let skipped = 0;
+
+  rows.slice(1).forEach((r) => {
+    const exercise = cell(r, 'exercise');
+    const iso = csvDateToIso(cell(r, 'date'), cell(r, 'time'));
+    if (!exercise || !iso) { skipped++; return; }
+
+    const workout = cell(r, 'workout') || 'Imported workout';
+    const key = `${iso}|${workout}`;
+    if (!byKey.has(key)) {
+      byKey.set(key, { id: uid(), name: workout, date: iso, durationMs: 0, entries: [] });
+    }
+    const session = byKey.get(key);
+
+    const seconds = cell(r, 'seconds');
+    const distance = cell(r, 'distance');
+    const minutes = cell(r, 'minutes');
+    const declared = cell(r, 'type').toLowerCase();
+
+    /* Trust a Type column; otherwise infer from which numbers are filled in. */
+    const type = ['lifting', 'cardio', 'timed'].includes(declared) ? declared
+      : seconds ? 'timed'
+      : (distance || minutes) ? 'cardio'
+      : 'lifting';
+
+    let entry = session.entries.find((e) => e.name === exercise && e.type === type);
+    if (!entry) {
+      entry = { id: uid(), name: exercise, type, sets: [] };
+      session.entries.push(entry);
+    }
+
+    const set = { id: uid(), done: true };   /* it already happened */
+    if (type === 'cardio') {
+      set.distance = distance;
+      set.minutes = minutes;
+    } else if (type === 'timed') {
+      set.seconds = seconds;
+    } else {
+      set.weight = cell(r, 'weight');
+      set.reps = cell(r, 'reps');
+    }
+    entry.sets.push(set);
+  });
+
+  const sessions = [...byKey.values()]
+    .filter((s) => s.entries.length)
+    .sort((a, b) => +new Date(b.date) - +new Date(a.date));
+
+  return { sessions, skipped, rows: rows.length - 1 };
+}
+
+/* Same key the export writes, to the minute — used to spot re-imports. */
+function sessionKeyOf(s) {
+  return `${new Date(s.date).toISOString().slice(0, 16)}|${s.name}`;
+}

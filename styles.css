@@ -558,3 +558,18 @@ select.text.slim{width:auto;flex:1;min-width:150px;padding:8px 10px;font-size:13
   display:block;text-align:center;color:var(--muted);
   font-size:12px;margin-top:12px;
 }
+
+/* ---------- alerts, notes, undo ---------- */
+.slider{flex:1;accent-color:var(--accent)}
+
+.session-note{
+  margin:8px 0 0;padding:8px 10px;font-size:13px;
+  background:var(--surface-2);border-left:3px solid var(--accent);
+  border-radius:0 8px 8px 0;color:var(--text);
+}
+
+.toast{display:flex;align-items:center;gap:12px}
+.toast-action{
+  background:none;border:0;padding:2px 4px;
+  color:var(--accent-fg);font-weight:700;font-size:14px;
+}

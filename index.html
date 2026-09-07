@@ -26,8 +26,8 @@
     document.documentElement.setAttribute('data-theme', theme);
   })();
 </script>
-<link rel="stylesheet" href="styles.css?v=17">
-<link rel="stylesheet" href="landing.css?v=17">
+<link rel="stylesheet" href="styles.css?v=18">
+<link rel="stylesheet" href="landing.css?v=18">
 </head>
 <body class="landing">
 
@@ -130,7 +130,14 @@ Treadmill 20 min</pre>
 
   <section class="install">
     <h2>Put it on your home screen</h2>
-    <p>Cadence is a web app, so there's no app store and nothing to update. Open it, then:</p>
+    <p>Cadence is a web app, so there's no app store and nothing to update.</p>
+
+    <div id="install-offer" hidden>
+      <button class="btn big" id="install-btn">Install Cadence</button>
+      <p class="small muted" style="margin:10px 0 0">One tap — your browser will confirm.</p>
+    </div>
+
+    <p id="install-manual-lead">Open it, then:</p>
     <div class="install-grid">
       <div class="feature">
         <h3>Android — Chrome</h3>
@@ -182,6 +189,37 @@ Treadmill 20 min</pre>
         cta.textContent = n === 1 ? 'Back to your log (1 workout)' : 'Back to your log (' + n + ' workouts)';
       }
     } catch (e) { /* leave the default */ }
+  })();
+
+  /* Chrome offers a real install prompt, so the written steps become the
+     fallback rather than the instruction. Safari has no equivalent API, so on
+     iPhone the steps stay exactly as they are. */
+  (function () {
+    var deferred = null;
+    var offer = document.getElementById('install-offer');
+    var btn = document.getElementById('install-btn');
+    var lead = document.getElementById('install-manual-lead');
+
+    window.addEventListener('beforeinstallprompt', function (ev) {
+      ev.preventDefault();
+      deferred = ev;
+      offer.hidden = false;
+      lead.textContent = 'Or do it by hand:';
+    });
+
+    btn.addEventListener('click', function () {
+      if (!deferred) return;
+      deferred.prompt();
+      deferred.userChoice.then(function (choice) {
+        if (choice.outcome === 'accepted') offer.hidden = true;
+        deferred = null;
+      });
+    });
+
+    window.addEventListener('appinstalled', function () {
+      offer.hidden = true;
+      lead.textContent = 'Already installed. To do it on another device:';
+    });
   })();
 </script>
 

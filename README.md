@@ -21,6 +21,7 @@ installed copy, so only the product name changed.
 - **Weekly goal** — set a target and a progress ring tells you where you are and whether the week is slipping away.
 - **Plate calculator** — what to load per side for any target weight.
 - **Share your week** — a square image of your week for the group chat.
+- **Alerts you can hear** — a rest alert designed to cut through music, with volume and a test button, plus the screen staying awake so it actually fires.
 - **Timers** — a rest countdown that starts on its own when you tick a set (or on demand via Start rest), and a stopwatch for held exercises like planks that writes the time straight into the set.
 - **Calendar** — month and week views showing which days you trained, colour-coded by what you did. Tap any day to see that day's workouts, log one you forgot to record, or delete one.
 - **Bodyweight** — log your weight, see a 7-day rolling average against a goal.
@@ -504,3 +505,60 @@ blank one behind rather than an exercise with no sets.
 Tabbing to a Delete button slides its row open so a keyboard user can see what they are about to
 press. That is done in JS on `focusin`, not with `:focus` in CSS, because that pseudo-class only
 matches while the whole document has focus.
+
+## Hearing the rest alert
+
+The original alert was two sine notes at 660/880 Hz at low gain. That sits right where music puts
+most of its energy, has no harmonics to stand out, and lasts a third of a second — so with anything
+playing in headphones it simply vanished. Three things changed:
+
+- **Around 2 kHz instead of 660 Hz**, roughly where hearing is most sensitive and where most mixes
+  are quieter.
+- **A square wave**, so there are harmonics to cut through, gently low-passed to take the edge off.
+- **Repeated pulses through a limiter**, which lets the output sit near full scale without the
+  crackle you get from just turning the gain up past clipping.
+
+Measured by rendering old and new through an `OfflineAudioContext`: **11× the RMS** for *Beep* and
+13.6× for *Alarm*, both peaking at 0.82 so neither clips. Three sounds are available with a volume
+slider and a **Test** button — play it with your music on and turn it up until you can hear it.
+
+Two caveats worth knowing: on iPhone the alert follows the ringer switch, and iOS ignores
+`navigator.vibrate` entirely, so the sound has to carry the job there.
+
+The `AudioContext` is now unlocked on the first tap anywhere. Safari refuses to start one outside a
+user gesture, and the rest timer fires without one — so previously the alert could be silent
+outright rather than merely quiet.
+
+## Keeping the screen awake
+
+A sleeping phone freezes the page, so the rest alert would fire when you next unlocked rather than
+when rest ended. The app now holds a **screen wake lock** while a workout is open, releasing it on
+finish or discard, and retaking it when you come back to the tab (the lock is dropped whenever the
+tab is hidden). It can be turned off in Settings, since it costs battery.
+
+## Protecting the log
+
+The app now calls `navigator.storage.persist()` on load, asking the browser to mark its storage as
+persistent so it isn't cleared to reclaim space. Browsers grant this on their own terms — usually
+once the app is installed or has been used a few times — so Settings reports the current state
+rather than pretending. It is not a substitute for exporting a backup.
+
+## Undo
+
+Deleting an exercise or a set now leaves a toast with **Undo** for six seconds, restoring it to the
+position it came from. Deleting the last set of an exercise backfills a blank one so there is still
+something to tap; undoing that removes the blank again rather than leaving a stray empty set.
+
+## Reordering and notes
+
+Exercises have up/down arrows in their header — deliberately non-destructive controls, unlike the
+delete that used to live there. A workout can also carry a short **note** ("slept badly, felt weak"),
+shown on the session card while you train and on the calendar afterwards, which is the context that
+later explains a bad week.
+
+## Installing
+
+Where the browser supports it — Chrome on Android and desktop — the landing page and Settings show a
+real **Install** button using `beforeinstallprompt`, so nobody has to be walked through a menu. The
+written steps stay because **Safari has no equivalent API**: on iPhone, Share → Add to Home Screen is
+genuinely the only route. When the button appears, the manual steps demote to "Or do it by hand".

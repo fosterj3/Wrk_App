@@ -15,6 +15,7 @@ const DEFAULTS = {
   settings: {
     units: 'lb', restSeconds: 90, calendarView: 'month', theme: null,
     weeklyGoal: 3, barWeight: 45, lastExport: null, backupSnooze: null,
+    alertSound: 'beep', alertVolume: 0.9, keepAwake: true,
   },
   routines: [],
   weights: [],          /* bodyweight log: [{ id, date, value }] */
@@ -74,12 +75,35 @@ function fmtDuration(ms) {
 
 
 let toastTimer;
-function toast(msg) {
+/**
+ * @param {string} msg
+ * @param {{label: string, run: Function}} [action] Adds a button — used for
+ *   Undo, so a deletion is reversible rather than merely hard to trigger.
+ */
+function toast(msg, action) {
   const el = $('#toast');
-  el.textContent = msg;
+  el.innerHTML = '';
+
+  const text = document.createElement('span');
+  text.textContent = msg;
+  el.appendChild(text);
+
+  if (action) {
+    const btn = document.createElement('button');
+    btn.className = 'toast-action';
+    btn.textContent = action.label;
+    btn.addEventListener('click', () => {
+      el.hidden = true;
+      clearTimeout(toastTimer);
+      action.run();
+    });
+    el.appendChild(btn);
+  }
+
   el.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { el.hidden = true; }, 2200);
+  /* Longer when there's something to click, so it can actually be clicked. */
+  toastTimer = setTimeout(() => { el.hidden = true; }, action ? 6000 : 2200);
 }
 
 /* ------------------------------------------------------------------- theme */
@@ -229,26 +253,104 @@ function stopTimer() {
 }
 
 function alarm() {
-  chime();
-  if (navigator.vibrate) navigator.vibrate([220, 90, 220]);
+  playAlert();
+  /* Android only — iOS ignores navigator.vibrate entirely, which is part of
+     why the sound itself has to carry the job. */
+  if (navigator.vibrate) navigator.vibrate([250, 90, 250, 90, 450]);
 }
 
+/**
+ * Alert sounds, designed to be heard over music in headphones.
+ *
+ * The old two-tone sine at 660/880 Hz sat right in the middle of where music
+ * puts most of its energy and had no harmonics to help it stand out, so it
+ * disappeared under anything playing. These sit near 2 kHz — roughly where
+ * hearing is most sensitive and where most mixes are quieter — use a square
+ * wave so there are harmonics to cut through, and repeat, because a single
+ * short blip is easy to miss entirely.
+ *
+ * notes: [frequency, startOffset, duration]
+ */
+const ALERT_SOUNDS = {
+  beep: {
+    label: 'Beep',
+    hint: 'Sharp triple beep. Best over music.',
+    type: 'square',
+    notes: [[1975, 0, 0.11], [1975, 0.17, 0.11], [1975, 0.34, 0.26]],
+  },
+  alarm: {
+    label: 'Alarm',
+    hint: 'Longer and harder to miss.',
+    type: 'square',
+    notes: [
+      [2093, 0, 0.1], [1568, 0.12, 0.1],
+      [2093, 0.28, 0.1], [1568, 0.40, 0.1],
+      [2093, 0.56, 0.1], [1568, 0.68, 0.28],
+    ],
+  },
+  chime: {
+    label: 'Chime',
+    hint: 'Gentle two-tone. Quiet gyms only.',
+    type: 'sine',
+    notes: [[660, 0, 0.16], [880, 0.18, 0.22]],
+  },
+};
+
 let audioCtx;
-function chime() {
+
+/* Safari will not start an AudioContext outside a user gesture, and the rest
+   timer fires without one. Unlocking on any tap means the context is already
+   running by the time a set is ticked off — otherwise the alert is silent. */
+function audio() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  return audioCtx;
+}
+
+document.addEventListener('pointerdown', () => {
+  try { audio(); } catch (err) { /* no audio on this device */ }
+});
+
+function playAlert(which) {
   try {
-    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
-    if (audioCtx.state === 'suspended') audioCtx.resume();
-    [0, 0.18].forEach((offset, i) => {
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.connect(gain).connect(audioCtx.destination);
-      osc.frequency.value = i === 0 ? 660 : 880;
-      const t = audioCtx.currentTime + offset;
+    const spec = ALERT_SOUNDS[which] || ALERT_SOUNDS[state.settings.alertSound] || ALERT_SOUNDS.beep;
+    const ctx = audio();
+    const volume = Math.min(1, Math.max(0, Number(state.settings.alertVolume)));
+    if (!volume) return;
+
+    /* A limiter lets the output sit close to full scale without the crackle
+       you get from simply turning the gain up past clipping. */
+    const limiter = ctx.createDynamicsCompressor();
+    limiter.threshold.value = -6;
+    limiter.knee.value = 0;
+    limiter.ratio.value = 20;
+    limiter.attack.value = 0.002;
+    limiter.release.value = 0.08;
+
+    /* Takes the harshest edge off the square wave without dulling it. */
+    const tone = ctx.createBiquadFilter();
+    tone.type = 'lowpass';
+    tone.frequency.value = 6000;
+
+    const master = ctx.createGain();
+    master.gain.value = volume;
+
+    master.connect(tone).connect(limiter).connect(ctx.destination);
+
+    spec.notes.forEach(([freq, at, dur]) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = spec.type;
+      osc.frequency.value = freq;
+      osc.connect(gain).connect(master);
+
+      const t = ctx.currentTime + 0.02 + at;
       gain.gain.setValueAtTime(0.0001, t);
-      gain.gain.exponentialRampToValueAtTime(0.28, t + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+      gain.gain.exponentialRampToValueAtTime(0.9, t + 0.008);
+      gain.gain.setValueAtTime(0.9, t + dur - 0.04);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
       osc.start(t);
-      osc.stop(t + 0.18);
+      osc.stop(t + dur + 0.02);
     });
   } catch (err) {
     /* Audio is a nicety — never let it break the timer. */
@@ -279,7 +381,7 @@ function render() {
   if (currentView === 'routines') renderRoutines();
   if (currentView === 'calendar') renderCalendar();
   if (currentView === 'data') renderData();
-  if (currentView === 'settings') renderSettings();
+  if (currentView === 'settings') { renderSettings(); showStorageStatus(); }
 }
 
 /* ------------------------------------------------- goal, backup, plates */
@@ -523,7 +625,8 @@ function startSession(routine, onDayKey) {
     durationMin: backdated ? 45 : null,
   };
   save();
-  go('workout');
+  keepScreenAwake();
+  go("workout");
 }
 
 /**
@@ -543,6 +646,7 @@ function startEditSession(session) {
     /* Backdated behaviour is what we want: no rest timer, typed duration. */
     backdated: true,
     durationMin: session.durationMs ? Math.round(session.durationMs / 60000) : null,
+    note: session.note || "",
     entries: session.entries.map((e) => ({
       id: uid(),
       name: e.name,
@@ -650,8 +754,11 @@ function renderWorkout() {
           <input class="text" type="number" inputmode="numeric" min="0" max="600"
                  data-duration value="${a.durationMin == null ? '' : a.durationMin}">
         </label>` : ''}
+      ${a.note ? `<p class="session-note">${esc(a.note)}</p>` : ''}
+
       <div class="row wrap">
         <button class="ghost small" data-action="start-rest">Start rest</button>
+        <button class="ghost small" data-action="session-note">${a.note ? 'Edit note' : 'Note'}</button>
         <button class="ghost small" data-action="rename-session">Rename</button>
         <button class="ghost small" data-action="save-as-routine">Save as routine</button>
         <div class="spacer"></div>
@@ -673,7 +780,8 @@ function renderWorkout() {
       : ''}`;
 }
 
-function renderEntry(entry) {
+function renderEntry(entry, index, all) {
+  const total = all.length;
   const isCardio = entry.type === 'cardio';
   const isTimed = entry.type === 'timed';
   const unit = state.settings.units === 'kg' ? 'Kg' : 'Lb';
@@ -702,6 +810,11 @@ function renderEntry(entry) {
       <span class="ex-name">${esc(entry.name)}</span>
       ${isPr ? '<span class="pill pr">PR</span>' : ''}
       <span class="pill ${entry.type}">${entry.type}</span>
+      <div class="spacer"></div>
+      ${index > 0 ? `<button class="icon-btn" data-action="move-entry" data-id="${entry.id}" data-dir="-1"
+              aria-label="Move ${esc(entry.name)} up">&uarr;</button>` : ''}
+      ${index < total - 1 ? `<button class="icon-btn" data-action="move-entry" data-id="${entry.id}" data-dir="1"
+              aria-label="Move ${esc(entry.name)} down">&darr;</button>` : ''}
     </div>
 
     ${last ? `
@@ -822,6 +935,7 @@ function finishSession() {
     if (a.editingId) state.sessions = state.sessions.filter((s) => s.id !== a.editingId);
     state.active = null;
     stopTimer();
+    releaseScreen();
     save();
     if (a.editingId) { go('calendar'); toast('Workout deleted'); return; }
     render();
@@ -832,6 +946,7 @@ function finishSession() {
     id: a.id,
     name: a.name,
     date: a.startedAt,
+    ...(a.note ? { note: a.note } : {}),
     /* A typed duration for a backdated log; real elapsed time for a live one. */
     durationMs: a.backdated
       ? Math.max(0, Number(a.durationMin) || 0) * 60000
@@ -853,6 +968,7 @@ function finishSession() {
   const landedOn = a.startedAt;
   state.active = null;
   stopTimer();
+  releaseScreen();
   save();
   toast(a.editingId ? 'Workout updated' : (a.backdated ? 'Workout logged' : 'Workout saved'));
   calCursor = new Date(landedOn);
@@ -1355,6 +1471,7 @@ function renderDayDetail(key, sessions) {
             <button class="icon-btn" data-action="delete-session" data-id="${s.id}"
                     aria-label="Delete ${esc(s.name)}">&#128465;</button>
           </div>
+          ${s.note ? `<p class="session-note">${esc(s.note)}</p>` : ''}
           ${s.entries.map((e) => `
             <div class="small" style="margin-top:6px">
               <span style="font-weight:600">${esc(e.name)}</span>
@@ -1677,6 +1794,117 @@ function columnOrLine(points, unit) {
   return lineChart(points, (v) => `${compact(v)} ${unit}`);
 }
 
+/* ----------------------------------------------------------------- install */
+
+/**
+ * Chrome fires beforeinstallprompt and lets us show a real Install button, so
+ * nobody has to be walked through a menu. Safari has no equivalent API — on
+ * iPhone the written steps are the only route, which is why they stay.
+ */
+let installPrompt = null;
+
+window.addEventListener('beforeinstallprompt', (ev) => {
+  ev.preventDefault();
+  installPrompt = ev;
+  if (currentView === 'settings') render();
+});
+
+window.addEventListener('appinstalled', () => {
+  installPrompt = null;
+  if (currentView === 'settings') render();
+  toast('Installed');
+});
+
+async function runInstallPrompt() {
+  if (!installPrompt) return;
+  installPrompt.prompt();
+  const { outcome } = await installPrompt.userChoice;
+  if (outcome === 'accepted') installPrompt = null;
+  render();
+}
+
+function isInstalled() {
+  return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
+    || window.navigator.standalone === true;
+}
+
+/* ------------------------------------------- keeping the screen and the data */
+
+/**
+ * Hold a screen wake lock while a workout is open.
+ *
+ * Without it the phone sleeps between sets, the page freezes, and the rest
+ * alert fires when you next unlock rather than when rest actually ended —
+ * which makes the timer useless for the one thing it's for.
+ */
+let wakeLock = null;
+
+async function keepScreenAwake() {
+  if (!('wakeLock' in navigator) || !state.settings.keepAwake || wakeLock) return;
+  try {
+    wakeLock = await navigator.wakeLock.request('screen');
+    wakeLock.addEventListener('release', () => { wakeLock = null; });
+  } catch (err) {
+    /* Refused on low battery, or unsupported. Not worth surfacing. */
+  }
+}
+
+function releaseScreen() {
+  if (!wakeLock) return;
+  wakeLock.release().catch(() => {});
+  wakeLock = null;
+}
+
+/* The lock is dropped whenever the tab is hidden, so it has to be retaken. */
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && state.active) keepScreenAwake();
+});
+
+/**
+ * Ask the browser to treat this origin's storage as persistent.
+ *
+ * Without it the log is "best effort" and can be cleared when the device is
+ * short on space, or on iOS after a long stretch without opening the app.
+ * This is the cheapest protection available against losing everything.
+ */
+async function protectStorage() {
+  try {
+    if (!navigator.storage || !navigator.storage.persist) return;
+    if (await navigator.storage.persisted()) return;
+    await navigator.storage.persist();
+  } catch (err) {
+    /* Nothing to do if the browser declines. */
+  }
+}
+
+/* Settings renders synchronously, so the answer is filled in when it arrives. */
+async function showStorageStatus() {
+  const el = $('#storage-status');
+  if (!el) return;
+  const status = await storageStatus();
+  if (!status) { el.textContent = 'This browser does not report storage protection.'; return; }
+
+  const size = status.used ? `${Math.max(1, Math.round(status.used / 1024))} KB used. ` : '';
+  el.textContent = status.persisted
+    ? `${size}Your log is marked persistent, so the browser will not clear it to reclaim space.`
+    : `${size}Not marked persistent yet — browsers usually grant this once you have installed the app or used it a few times. Keep exporting backups.`;
+}
+
+async function storageStatus() {
+  try {
+    if (!navigator.storage || !navigator.storage.persisted) return null;
+    const persisted = await navigator.storage.persisted();
+    let used = null;
+    if (navigator.storage.estimate) {
+      const est = await navigator.storage.estimate();
+      used = est.usage;
+    }
+    return { persisted, used };
+  } catch (err) {
+    return null;
+  }
+}
+
 /* ------------------------------------------------- units and exercise names */
 
 /* Rewrites every stored weight into the new unit. Confirmed first, because it
@@ -1786,6 +2014,20 @@ function renderSettings() {
   const st = state.settings;
 
   el.innerHTML = `
+    ${installPrompt ? `
+      <div class="card">
+        <div class="card-title">Install Cadence</div>
+        <p class="small muted" style="margin:6px 0 12px">Adds it to your home screen so it opens
+          full screen and works without a signal.</p>
+        <button class="btn block" data-action="install-app">Install</button>
+      </div>` : (isInstalled() ? '' : `
+      <div class="card">
+        <div class="card-title">Install Cadence</div>
+        <p class="small muted" style="margin:6px 0 0">On iPhone, tap <strong>Share</strong> in
+          Safari, then <strong>Add to Home Screen</strong> — Safari gives no button we can offer
+          here. On Android, use Chrome's menu if this page hasn't offered one yet.</p>
+      </div>`)}
+
     <div class="card">
       <div class="card-title" style="margin-bottom:12px">Preferences</div>
       <label class="field">
@@ -1802,6 +2044,39 @@ function renderSettings() {
           <option value="kg" ${st.units === 'kg' ? 'selected' : ''}>Kilograms (kg)</option>
         </select>
       </label>
+      <label class="field">
+        <span>Alert sound</span>
+        <div class="seg wrap">
+          ${Object.entries(ALERT_SOUNDS).map(([key, s]) => `
+            <button data-action="alert-sound" data-val="${key}"
+                    class="${(st.alertSound || 'beep') === key ? 'on' : ''}">${s.label}</button>`).join('')}
+        </div>
+        <p class="small muted" style="margin:6px 0 0">
+          ${esc((ALERT_SOUNDS[st.alertSound] || ALERT_SOUNDS.beep).hint)}
+        </p>
+      </label>
+
+      <label class="field">
+        <span>Alert volume — ${Math.round((st.alertVolume ?? 0.9) * 100)}%</span>
+        <div class="row">
+          <input type="range" min="0" max="100" step="5" class="slider"
+                 data-volume value="${Math.round((st.alertVolume ?? 0.9) * 100)}">
+          <button class="ghost small" data-action="test-alert">Test</button>
+        </div>
+        <p class="small muted" style="margin:6px 0 0">Play it with your music on and turn it up
+          until you can hear it. On iPhone the alert follows the ringer switch.</p>
+      </label>
+
+      <label class="field">
+        <span>Keep the screen on during a workout</span>
+        <div class="seg">
+          <button data-action="keep-awake" data-val="1" class="${st.keepAwake === false ? '' : 'on'}">On</button>
+          <button data-action="keep-awake" data-val="0" class="${st.keepAwake === false ? 'on' : ''}">Off</button>
+        </div>
+        <p class="small muted" style="margin:6px 0 0">A sleeping phone freezes the page, so the
+          rest alert would only fire when you unlock it. Costs some battery.</p>
+      </label>
+
       <label class="field">
         <span>Default rest timer (seconds) — 0 turns it off</span>
         <input class="text" type="number" inputmode="numeric" min="0" max="600"
@@ -1833,6 +2108,8 @@ function renderSettings() {
       <button class="btn block secondary" data-action="export-csv">Spreadsheet (.csv)</button>
       <p class="small muted" style="margin:6px 0 12px">Readable anywhere — open on your phone, or
         email it to a coach. One row per set.</p>
+
+      <p class="small muted" id="storage-status" style="margin:0 0 12px">Checking storage…</p>
 
       <button class="btn block secondary" data-action="exercise-names">Exercise names</button>
       <p class="small muted" style="margin:6px 0 12px">Fix a typo or merge two spellings of the
@@ -2097,6 +2374,7 @@ document.addEventListener('click', (ev) => {
       }
       state.active = null;
       stopTimer();
+      releaseScreen();
       save();
       render();
       break;
@@ -2153,12 +2431,21 @@ document.addEventListener('click', (ev) => {
 
     case 'remove-entry': {
       /* No confirm dialog: swiping open and then tapping Delete is already two
-         deliberate actions, which is what the dialog was there to force. */
-      const gone = state.active.entries.find((e) => e.id === id);
-      state.active.entries = state.active.entries.filter((e) => e.id !== id);
+         deliberate actions, and Undo below makes it reversible anyway. */
+      const at = state.active.entries.findIndex((e) => e.id === id);
+      if (at < 0) return;
+      const gone = state.active.entries[at];
+      state.active.entries.splice(at, 1);
       save();
       render();
-      if (gone) toast(`Removed ${gone.name}`);
+      toast(`Removed ${gone.name}`, {
+        label: 'Undo',
+        run: () => {
+          state.active.entries.splice(Math.min(at, state.active.entries.length), 0, gone);
+          save();
+          render();
+        },
+      });
       break;
     }
 
@@ -2175,10 +2462,27 @@ document.addEventListener('click', (ev) => {
          ids come off the button itself — closest('[data-set]') would miss. */
       const entry = state.active.entries.find((e) => e.id === btn.dataset.entryId);
       if (!entry) return;
-      entry.sets = entry.sets.filter((s) => s.id !== id);
-      if (!entry.sets.length) entry.sets.push(newSet(entry.type));
+      const at = entry.sets.findIndex((s) => s.id === id);
+      if (at < 0) return;
+      const gone = entry.sets[at];
+      entry.sets.splice(at, 1);
+
+      /* An exercise with no sets has nothing to tap, so a blank one takes its
+         place — and Undo has to take that blank back out again. */
+      const backfilled = entry.sets.length === 0;
+      if (backfilled) entry.sets.push(newSet(entry.type));
+
       save();
       render();
+      toast(`Set ${at + 1} removed`, {
+        label: 'Undo',
+        run: () => {
+          if (backfilled) entry.sets.length = 0;
+          entry.sets.splice(Math.min(at, entry.sets.length), 0, gone);
+          save();
+          render();
+        },
+      });
       break;
     }
 
@@ -2442,6 +2746,27 @@ document.addEventListener('click', (ev) => {
       render();
       break;
 
+    /* ---- ordering and notes ---- */
+    case 'move-entry': {
+      const at = state.active.entries.findIndex((e) => e.id === id);
+      const to = at + Number(btn.dataset.dir);
+      if (at < 0 || to < 0 || to >= state.active.entries.length) return;
+      const [moved] = state.active.entries.splice(at, 1);
+      state.active.entries.splice(to, 0, moved);
+      save();
+      render();
+      break;
+    }
+
+    case 'session-note': {
+      const note = prompt('Note for this workout', state.active.note || '');
+      if (note === null) return;
+      state.active.note = note.trim();
+      save();
+      render();
+      break;
+    }
+
     /* ---- timers ---- */
     case 'time-set': {
       /* Tapping the same set again stops it and records the time. */
@@ -2593,11 +2918,37 @@ document.addEventListener('click', (ev) => {
       render();
       break;
 
+    case 'install-app':
+      runInstallPrompt();
+      break;
+
+    /* ---- alerts ---- */
+    case 'alert-sound':
+      state.settings.alertSound = btn.dataset.val;
+      save();
+      render();
+      playAlert(btn.dataset.val);      /* hear it immediately on choosing it */
+      break;
+
+    case 'test-alert':
+      playAlert();
+      break;
+
+    case 'keep-awake':
+      state.settings.keepAwake = btn.dataset.val === '1';
+      save();
+      render();
+      if (state.settings.keepAwake && state.active) keepScreenAwake();
+      else releaseScreen();
+      break;
+
     /* ---- settings ---- */
     case 'theme':
       state.settings.theme = btn.dataset.val;
       save();
       applyTheme();
+protectStorage();
+if (state.active) keepScreenAwake();
       render();
       break;
 
@@ -2660,6 +3011,15 @@ document.addEventListener('input', (ev) => {
     const card = el.closest('[data-entry]');
     const { set } = findSet(card.dataset.entry, row.dataset.set);
     if (set) { set[el.dataset.field] = el.value; save(); }
+    return;
+  }
+
+  /* Volume slides live so you can hear the change while dragging. */
+  if (el.hasAttribute('data-volume')) {
+    state.settings.alertVolume = Math.min(1, Math.max(0, Number(el.value) / 100));
+    save();
+    const label = el.closest('label').querySelector('span');
+    if (label) label.textContent = `Alert volume — ${Math.round(state.settings.alertVolume * 100)}%`;
     return;
   }
 

@@ -9,7 +9,7 @@ const STORE_KEY = 'wrk.v1';
 
 const DEFAULTS = {
   version: 1,
-  settings: { units: 'lb', restSeconds: 90 },
+  settings: { units: 'lb', restSeconds: 90, calendarView: 'month' },
   routines: [],
   sessions: [],
   active: null,
@@ -194,7 +194,13 @@ function chime() {
 /* ------------------------------------------------------------------ router */
 
 let currentView = 'workout';
-const TITLES = { workout: 'Workout', routines: 'Routines', history: 'History', settings: 'Settings' };
+const TITLES = {
+  workout: 'Workout',
+  routines: 'Routines',
+  calendar: 'Calendar',
+  history: 'History',
+  settings: 'Settings',
+};
 
 function go(view) {
   currentView = view;
@@ -207,6 +213,7 @@ function go(view) {
 function render() {
   if (currentView === 'workout') renderWorkout();
   if (currentView === 'routines') renderRoutines();
+  if (currentView === 'calendar') renderCalendar();
   if (currentView === 'history') renderHistory();
   if (currentView === 'settings') renderSettings();
 }
@@ -590,6 +597,233 @@ function syncImportNames() {
     const r = pendingImport.routines[Number(input.dataset.rname)];
     if (r) r.name = input.value.trim() || r.name;
   });
+}
+
+/* ----------------------------------------------------------- calendar view */
+
+let calCursor = new Date();          // which month/week is on screen
+let calSelected = null;              // 'YYYY-MM-DD' of the day being detailed
+
+const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+/* Local-time day key. Deliberately not toISOString(), which shifts to UTC and
+   would file an evening workout under the following day. */
+function dayKey(value) {
+  const d = value instanceof Date ? value : new Date(value);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function keyToDate(key) {
+  return new Date(`${key}T00:00:00`);
+}
+
+function startOfWeek(d) {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  x.setDate(x.getDate() - x.getDay());
+  return x;
+}
+
+function sessionsByDay() {
+  const map = new Map();
+  state.sessions.forEach((s) => {
+    const k = dayKey(s.date);
+    if (!map.has(k)) map.set(k, []);
+    map.get(k).push(s);
+  });
+  return map;
+}
+
+/* What colour a day gets: lifting, cardio, or both. */
+function sessionKind(s) {
+  const types = new Set((s.entries || []).map((e) => e.type));
+  if (types.size > 1) return 'mixed';
+  return types.has('cardio') ? 'cardio' : 'lifting';
+}
+
+/* The run of days currently on screen, plus how to label it. Shared by the
+   renderer and by the navigation, which needs to know what's in view. */
+function calendarDays() {
+  const week = state.settings.calendarView === 'week';
+
+  if (week) {
+    const start = startOfWeek(calCursor);
+    const days = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(start);
+      d.setDate(start.getDate() + i);
+      days.push(d);
+    }
+    return { week, days, title: weekTitle(start), inRange: () => true };
+  }
+
+  const first = new Date(calCursor.getFullYear(), calCursor.getMonth(), 1);
+  const last = new Date(calCursor.getFullYear(), calCursor.getMonth() + 1, 0);
+  const start = startOfWeek(first);
+  const cells = Math.ceil((Math.round((last - start) / 86400000) + 1) / 7) * 7;
+
+  const days = [];
+  for (let i = 0; i < cells; i++) {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    days.push(d);
+  }
+
+  return {
+    week,
+    days,
+    title: calCursor.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }),
+    inRange: (d) => d.getMonth() === calCursor.getMonth(),
+  };
+}
+
+/* After navigating, keep the detail panel showing something that's actually
+   on screen: today if it's visible, otherwise the first day with a workout. */
+function selectDefaultDay() {
+  const { days, inRange } = calendarDays();
+  const inView = days.filter(inRange);
+  if (!inView.length) return;
+
+  const byDay = sessionsByDay();
+  const todayKey = dayKey(new Date());
+  const today = inView.find((d) => dayKey(d) === todayKey);
+  const worked = inView.find((d) => byDay.has(dayKey(d)));
+  calSelected = dayKey(today || worked || inView[0]);
+}
+
+function shiftCalendar(dir) {
+  if (state.settings.calendarView === 'week') {
+    calCursor.setDate(calCursor.getDate() + 7 * dir);
+  } else {
+    calCursor.setMonth(calCursor.getMonth() + dir, 1);
+  }
+  selectDefaultDay();
+  render();
+}
+
+function weekTitle(start) {
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+  if (start.getMonth() === end.getMonth()) {
+    return `${start.toLocaleDateString(undefined, { month: 'long' })} ${start.getDate()}–${end.getDate()}`;
+  }
+  const opts = { month: 'short', day: 'numeric' };
+  return `${start.toLocaleDateString(undefined, opts)} – ${end.toLocaleDateString(undefined, opts)}`;
+}
+
+function renderCalendar() {
+  const el = $('#view-calendar');
+  const action = $('#btn-header-action');
+  action.hidden = false;
+  action.textContent = 'Today';
+  action.dataset.action = 'cal-today';
+
+  const byDay = sessionsByDay();
+  const todayKey = dayKey(new Date());
+  if (!calSelected) calSelected = todayKey;
+
+  const { week, days, title, inRange } = calendarDays();
+
+  const workoutDays = days.filter((d) => inRange(d) && byDay.has(dayKey(d))).length;
+  const totalSessions = days.reduce((n, d) => n + (inRange(d) ? (byDay.get(dayKey(d)) || []).length : 0), 0);
+
+  const cellsHtml = days.map((d) => {
+    const key = dayKey(d);
+    const list = byDay.get(key) || [];
+    const classes = [
+      'cal-cell',
+      week ? 'week' : '',
+      inRange(d) ? '' : 'out',
+      key === todayKey ? 'today' : '',
+      key === calSelected ? 'sel' : '',
+      list.length ? 'has' : '',
+    ].filter(Boolean).join(' ');
+
+    const marks = week
+      ? list.slice(0, 3).map((s) => `
+          <span class="cal-chip k-${sessionKind(s)}">${esc(s.name)}</span>`).join('')
+      : `<span class="cal-dots">${list.slice(0, 3)
+            .map((s) => `<span class="cal-dot k-${sessionKind(s)}"></span>`).join('')}</span>`;
+
+    const label = `${d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}, ${
+      list.length ? `${list.length} workout${list.length === 1 ? '' : 's'}` : 'no workout'}`;
+
+    return `
+      <button class="${classes}" data-action="cal-day" data-key="${key}" aria-label="${esc(label)}">
+        <span class="cal-num">${d.getDate()}</span>
+        ${marks}
+        ${list.length > 3 ? `<span class="cal-more">+${list.length - 3}</span>` : ''}
+      </button>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div class="cal-head">
+      <button class="icon-btn" data-action="cal-prev" aria-label="Previous">&lsaquo;</button>
+      <div class="cal-title">${esc(title)}</div>
+      <button class="icon-btn" data-action="cal-next" aria-label="Next">&rsaquo;</button>
+    </div>
+
+    <div class="row" style="justify-content:center;margin-bottom:12px">
+      <div class="seg">
+        <button data-action="cal-mode" data-mode="month" class="${week ? '' : 'on'}">Month</button>
+        <button data-action="cal-mode" data-mode="week" class="${week ? 'on' : ''}">Week</button>
+      </div>
+    </div>
+
+    <div class="cal-grid">
+      ${DOW.map((n) => `<div class="cal-dow">${n}</div>`).join('')}
+      ${cellsHtml}
+    </div>
+
+    <div class="cal-legend">
+      <span><i class="cal-dot k-lifting"></i>Lifting</span>
+      <span><i class="cal-dot k-cardio"></i>Cardio</span>
+      <span><i class="cal-dot k-mixed"></i>Both</span>
+    </div>
+
+    <p class="small muted center" style="margin-top:10px">
+      ${workoutDays
+        ? `${workoutDays} active day${workoutDays === 1 ? '' : 's'} &middot; ${totalSessions} workout${totalSessions === 1 ? '' : 's'} this ${week ? 'week' : 'month'}`
+        : `Nothing logged this ${week ? 'week' : 'month'}`}
+    </p>
+
+    ${renderDayDetail(calSelected, byDay.get(calSelected) || [])}`;
+}
+
+function renderDayDetail(key, sessions) {
+  if (!key) return '';
+  const heading = keyToDate(key).toLocaleDateString(undefined, {
+    weekday: 'long', month: 'long', day: 'numeric',
+  });
+
+  if (!sessions.length) {
+    return `
+      <div class="card" style="margin-top:16px">
+        <div class="card-title">${esc(heading)}</div>
+        <p class="small muted" style="margin:6px 0 0">Rest day — nothing logged.</p>
+      </div>`;
+  }
+
+  return `
+    <div class="card" style="margin-top:16px">
+      <div class="card-title">${esc(heading)}</div>
+      ${sessions.map((s) => {
+        const sets = s.entries.reduce((n, e) => n + e.sets.length, 0);
+        const time = new Date(s.date).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+        return `
+        <div class="sess k-${sessionKind(s)}">
+          <div style="font-weight:650">${esc(s.name)}</div>
+          <div class="small muted">${time} &middot; ${fmtDuration(s.durationMs)} &middot; ${sets} set${sets === 1 ? '' : 's'}</div>
+          ${s.entries.map((e) => `
+            <div class="small" style="margin-top:6px">
+              <span style="font-weight:600">${esc(e.name)}</span>
+              <span class="muted">${e.sets.map((set) => e.type === 'cardio'
+                ? `${esc(set.distance) || '—'}/${esc(set.minutes) || '—'}min`
+                : `${esc(set.weight) || '—'}${state.settings.units}&times;${esc(set.reps) || '—'}`).join(', ')}</span>
+            </div>`).join('')}
+        </div>`;
+      }).join('')}
+    </div>`;
 }
 
 /* ------------------------------------------------------------ history view */
@@ -999,6 +1233,40 @@ document.addEventListener('click', (ev) => {
         closeSheet();
         render();
       }
+      break;
+    }
+
+    /* ---- calendar ---- */
+    case 'cal-prev':
+      shiftCalendar(-1);
+      break;
+
+    case 'cal-next':
+      shiftCalendar(1);
+      break;
+
+    case 'cal-today':
+      calCursor = new Date();
+      calSelected = dayKey(calCursor);
+      render();
+      break;
+
+    case 'cal-mode':
+      state.settings.calendarView = btn.dataset.mode;
+      /* Follow the selected day into the new view so it doesn't jump elsewhere. */
+      calCursor = keyToDate(calSelected || dayKey(new Date()));
+      save();
+      render();
+      break;
+
+    case 'cal-day': {
+      calSelected = btn.dataset.key;
+      const picked = keyToDate(calSelected);
+      /* Tapping a spill-over day from a neighbouring month moves the view there. */
+      if (state.settings.calendarView !== 'week' && picked.getMonth() !== calCursor.getMonth()) {
+        calCursor = picked;
+      }
+      render();
       break;
     }
 

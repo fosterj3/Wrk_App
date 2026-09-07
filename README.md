@@ -11,6 +11,7 @@ Log lifting and cardio, save reusable routines, and time your rest between sets.
 - **Paste from your notes** — paste a workout or a whole program straight out of Notes and it becomes routines, with sets, reps and weights filled in. It shows you what it understood before saving anything.
 - **Routines** — save a workout as a template ("Push Day A") and load it instead of retyping it every session.
 - **Rest timer** — starts automatically when you tick a set, with a chime and a vibration when it's up. Configurable, or off.
+- **Calendar** — month and week views showing which days you trained, colour-coded by what you did. Tap any day to see that day's workouts in full.
 - **History** — a running list of everything you've finished.
 - **Works offline** — a service worker caches the app, so it runs in the gym with no signal.
 
@@ -99,3 +100,20 @@ so nothing disappears without you seeing it. Nothing is saved until you press **
 
 Weights are imported as written — if your notes are in kg and the app is set to lb, it says so
 rather than converting.
+
+## The calendar
+
+Month view shows the whole month at a glance, with a coloured dot on every day you trained.
+Week view widens the cells so each workout shows by name. Either way, tapping a day opens that
+day's workouts underneath — exercises, sets, weights and the time you started.
+
+Days are coloured by what kind of session it was:
+
+| Colour | Means |
+| --- | --- |
+| Blue | Lifting only |
+| Amber | Cardio only |
+| Green | Both in the same session |
+
+Today is circled, the selected day is outlined, and paging between months or weeks moves the
+selection with you so the panel underneath always describes something you can see.

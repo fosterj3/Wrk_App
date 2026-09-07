@@ -438,16 +438,73 @@ function summarizeItem(item) {
   return sets.map((s) => `${s.weight != null ? `${s.weight}×` : ''}${s.reps == null ? '—' : s.reps}`).join(', ');
 }
 
-function startSession(routine) {
+/**
+ * Begin entering a workout.
+ *
+ * @param {object|null} routine  Load its exercises, or null for an empty one.
+ * @param {string} [onDayKey]    'YYYY-MM-DD' to date the session to an earlier
+ *                               day. Omit (or pass today) for a live workout.
+ */
+function startSession(routine, onDayKey) {
+  const todayKey = dayKey(new Date());
+  const backdated = !!onDayKey && onDayKey !== todayKey;
+
+  /* A backdated entry has no real start time, so pick midday — it keeps the
+     session inside the right calendar day in every timezone. */
+  let when = new Date();
+  if (backdated) {
+    when = keyToDate(onDayKey);
+    when.setHours(12, 0, 0, 0);
+  }
+
   state.active = {
     id: uid(),
-    startedAt: new Date().toISOString(),
+    startedAt: when.toISOString(),
     name: routine ? routine.name : 'Quick workout',
     routineId: routine ? routine.id : null,
     entries: routine ? routine.items.map(makeEntry) : [],
+    backdated,
+    /* Elapsed time is meaningless when logging after the fact, so it's typed. */
+    durationMin: backdated ? 45 : null,
   };
   save();
   go('workout');
+}
+
+/* Choose what to log on a given day: from scratch, or from a routine. */
+function openLogSheet(key) {
+  const d = keyToDate(key);
+  const isToday = key === dayKey(new Date());
+
+  openSheet(isToday ? 'Add a workout today' : 'Log a past workout', `
+    <p class="small muted" style="margin-top:0">
+      ${isToday ? 'Starting now.' : `This will be saved under
+      <strong>${esc(d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }))}</strong>.
+      You'll type in the sets you did — no timer.`}
+    </p>
+    <button class="btn block" data-action="log-empty" data-key="${key}">Start from scratch</button>
+    ${state.routines.length ? `
+      <h3 class="small muted" style="margin:20px 0 8px">FROM A ROUTINE</h3>
+      ${state.routines.map((r) => `
+        <button class="pick" data-action="log-routine" data-key="${key}" data-id="${r.id}">
+          <div class="grow">
+            <div class="nm">${esc(r.name)}</div>
+            <div class="card-sub">${r.items.length} exercise${r.items.length === 1 ? '' : 's'}</div>
+          </div>
+          <span class="muted">&rsaquo;</span>
+        </button>`).join('')}` : ''}`);
+}
+
+/* Guard shared by both log actions. */
+function canStartOn(key) {
+  if (keyToDate(key) > new Date()) {
+    toast("You can't log a workout in the future");
+    return false;
+  }
+  if (state.active && !confirm('You have a workout in progress. Replace it with this one?')) {
+    return false;
+  }
+  return true;
 }
 
 function renderWorkout() {
@@ -483,17 +540,33 @@ function renderWorkout() {
   action.textContent = 'Finish';
   action.dataset.action = 'finish';
 
-  const elapsed = fmtDuration(Date.now() - new Date(a.startedAt).getTime());
   const doneSets = a.entries.reduce((n, e) => n + e.sets.filter((s) => s.done).length, 0);
+  const setsText = `${doneSets} set${doneSets === 1 ? '' : 's'} done`;
 
   el.innerHTML = `
+    ${a.backdated ? `
+      <div class="backdate-bar">
+        Logging for <strong>${esc(new Date(a.startedAt).toLocaleDateString(undefined, {
+          weekday: 'long', month: 'long', day: 'numeric',
+        }))}</strong>
+      </div>` : ''}
+
     <div class="card">
       <div class="card-head">
         <div>
           <div class="card-title">${esc(a.name)}</div>
-          <div class="card-sub" id="session-summary">${elapsed} elapsed &middot; ${doneSets} set${doneSets === 1 ? '' : 's'} done</div>
+          <div class="card-sub" id="session-summary">${a.backdated
+            ? setsText
+            : `${fmtDuration(Date.now() - new Date(a.startedAt).getTime())} elapsed &middot; ${setsText}`}</div>
         </div>
       </div>
+
+      ${a.backdated ? `
+        <label class="field" style="margin:10px 0 12px">
+          <span>How long did it take? (minutes, optional)</span>
+          <input class="text" type="number" inputmode="numeric" min="0" max="600"
+                 data-duration value="${a.durationMin == null ? '' : a.durationMin}">
+        </label>` : ''}
       <div class="row wrap">
         <button class="ghost small" data-action="rename-session">Rename</button>
         <button class="ghost small" data-action="save-as-routine">Save as routine</button>
@@ -603,9 +676,11 @@ function checkPersonalRecord(entry, set, card) {
 function updateSummary() {
   const el = $('#session-summary');
   if (!el || !state.active) return;
-  const elapsed = fmtDuration(Date.now() - new Date(state.active.startedAt).getTime());
   const done = state.active.entries.reduce((n, e) => n + e.sets.filter((s) => s.done).length, 0);
-  el.innerHTML = `${elapsed} elapsed &middot; ${done} set${done === 1 ? '' : 's'} done`;
+  const setsText = `${done} set${done === 1 ? '' : 's'} done`;
+  el.innerHTML = state.active.backdated
+    ? setsText
+    : `${fmtDuration(Date.now() - new Date(state.active.startedAt).getTime())} elapsed &middot; ${setsText}`;
 }
 
 function findSet(entryId, setId) {
@@ -634,15 +709,23 @@ function finishSession() {
     id: a.id,
     name: a.name,
     date: a.startedAt,
-    durationMs: Date.now() - new Date(a.startedAt).getTime(),
+    /* A typed duration for a backdated log; real elapsed time for a live one. */
+    durationMs: a.backdated
+      ? Math.max(0, Number(a.durationMin) || 0) * 60000
+      : Date.now() - new Date(a.startedAt).getTime(),
     entries: kept,
   });
+
+  /* Newest first, so a backdated entry lands in the right place. */
+  state.sessions.sort((x, y) => +new Date(y.date) - +new Date(x.date));
+
+  const landedOn = a.startedAt;
   state.active = null;
   stopRest();
   save();
-  toast('Workout saved');
-  calCursor = new Date();
-  calSelected = dayKey(calCursor);
+  toast(a.backdated ? 'Workout logged' : 'Workout saved');
+  calCursor = new Date(landedOn);
+  calSelected = dayKey(landedOn);
   go('calendar');
 }
 
@@ -1009,15 +1092,28 @@ function renderCalendar() {
 
 function renderDayDetail(key, sessions) {
   if (!key) return '';
-  const heading = keyToDate(key).toLocaleDateString(undefined, {
+  const day = keyToDate(key);
+  const heading = day.toLocaleDateString(undefined, {
     weekday: 'long', month: 'long', day: 'numeric',
   });
+
+  const isToday = key === dayKey(new Date());
+  const isFuture = day > new Date();
+
+  /* Any past day can be filled in after the fact; a future one can't. */
+  const addButton = isFuture
+    ? '<p class="small muted" style="margin:12px 0 0">You can\'t log a workout before it happens.</p>'
+    : `<button class="btn block ${sessions.length ? 'secondary' : ''}" data-action="log-on-day"
+               data-key="${key}" style="margin-top:${sessions.length ? '14px' : '12px'}">
+         ${isToday ? '+ Add a workout today' : '+ Log a workout on this day'}
+       </button>`;
 
   if (!sessions.length) {
     return `
       <div class="card" style="margin-top:16px">
         <div class="card-title">${esc(heading)}</div>
-        <p class="small muted" style="margin:6px 0 0">Rest day — nothing logged.</p>
+        <p class="small muted" style="margin:6px 0 0">${isFuture ? 'Nothing here yet.' : 'Rest day — nothing logged.'}</p>
+        ${addButton}
       </div>`;
   }
 
@@ -1032,7 +1128,7 @@ function renderDayDetail(key, sessions) {
           <div class="row">
             <div class="grow">
               <div style="font-weight:650">${esc(s.name)}</div>
-              <div class="small muted">${time} &middot; ${fmtDuration(s.durationMs)} &middot; ${sets} set${sets === 1 ? '' : 's'}</div>
+              <div class="small muted">${time}${s.durationMs > 0 ? ` &middot; ${fmtDuration(s.durationMs)}` : ''} &middot; ${sets} set${sets === 1 ? '' : 's'}</div>
             </div>
             <button class="icon-btn" data-action="delete-session" data-id="${s.id}"
                     aria-label="Delete ${esc(s.name)}">&#128465;</button>
@@ -1046,6 +1142,7 @@ function renderDayDetail(key, sessions) {
             </div>`).join('')}
         </div>`;
       }).join('')}
+      ${addButton}
     </div>`;
 }
 
@@ -1527,7 +1624,10 @@ document.addEventListener('click', (ev) => {
       btn.classList.toggle('on', set.done);
       updateSummary();
       if (set.done) checkPersonalRecord(entry, set, card);
-      if (set.done && state.settings.restSeconds > 0) startRest(state.settings.restSeconds);
+      /* No rest timer when filling in a workout that already happened. */
+      if (set.done && !state.active.backdated && state.settings.restSeconds > 0) {
+        startRest(state.settings.restSeconds);
+      }
       break;
     }
 
@@ -1650,6 +1750,28 @@ document.addEventListener('click', (ev) => {
         closeSheet();
         render();
       }
+      break;
+    }
+
+    /* ---- logging onto a specific day ---- */
+    case 'log-on-day':
+      openLogSheet(btn.dataset.key);
+      break;
+
+    case 'log-empty': {
+      const key = btn.dataset.key;
+      if (!canStartOn(key)) return;
+      closeSheet();
+      startSession(null, key);
+      break;
+    }
+
+    case 'log-routine': {
+      const key = btn.dataset.key;
+      const r = state.routines.find((x) => x.id === id);
+      if (!r || !canStartOn(key)) return;
+      closeSheet();
+      startSession(r, key);
       break;
     }
 
@@ -1790,6 +1912,12 @@ document.addEventListener('input', (ev) => {
     return;
   }
 
+  if (el.hasAttribute('data-duration') && state.active) {
+    state.active.durationMin = el.value === '' ? null : Math.max(0, Number(el.value) || 0);
+    save();
+    return;
+  }
+
   if (el.dataset.select === 'exercise') {
     dataExercise = el.value;
     render();
@@ -1858,9 +1986,13 @@ $('#rest-add').addEventListener('click', () => {
   updateRest();
 });
 
-/* Keep the "elapsed" line honest while a workout is open. */
+/* Keep the "elapsed" line honest while a live workout is open. A backdated log
+   has no clock to track, and re-rendering would only fight the user's typing. */
 setInterval(() => {
-  if (state.active && currentView === 'workout' && $('#sheet').hidden && !$('.cell:focus')) render();
+  if (!state.active || state.active.backdated) return;
+  if (currentView !== 'workout' || !$('#sheet').hidden) return;
+  if ($('#view-workout input:focus')) return;
+  render();
 }, 30000);
 
 window.addEventListener('beforeunload', save);

@@ -476,3 +476,11 @@ select.text.slim{width:auto;flex:1;min-width:150px;padding:8px 10px;font-size:13
   border-radius:999px;padding:8px 14px;font-weight:700;
   font-variant-numeric:tabular-nums;
 }
+
+/* ---------- backdated logging ---------- */
+.backdate-bar{
+  background:var(--surface-2);border:1px solid var(--accent);
+  border-radius:var(--radius);padding:10px 14px;margin-bottom:12px;
+  font-size:14px;color:var(--text);
+}
+.backdate-bar strong{color:var(--accent-fg)}

@@ -16,7 +16,7 @@ Log lifting and cardio, save reusable routines, and time your rest between sets.
 - **Plate calculator** — what to load per side for any target weight.
 - **Share your week** — a square image of your week for the group chat.
 - **Rest timer** — starts automatically when you tick a set, with a chime and a vibration when it's up. Configurable, or off.
-- **Calendar** — month and week views showing which days you trained, colour-coded by what you did. Tap any day to see that day's workouts in full, or delete one.
+- **Calendar** — month and week views showing which days you trained, colour-coded by what you did. Tap any day to see that day's workouts, log one you forgot to record, or delete one.
 - **Data** — charts for how often you train, what kind, your strength progression per exercise, weekly volume and cardio, and your most-trained lifts.
 - **Dark and light themes** — royal purple on black, or purple on warm off-white. Follows your phone's setting on first run; switch it any time in Settings.
 - **Works offline** — a service worker caches the app, so it runs in the gym with no signal.
@@ -231,3 +231,24 @@ the live theme tokens off `:root`, so it matches whichever theme is active.
 **Backup nudge.** After five logged workouts, if you've never exported or it's been over 30 days, a
 banner offers to export. "Later" snoozes it for a week; exporting clears it. This exists because
 local-only storage means a cleared browser is a total loss.
+
+## Logging a workout you already did
+
+Tap any past day in the calendar and use **Log a workout on this day**. Pick a routine or start from
+scratch, type in the sets, and it saves under that date. Today's button says **Add a workout today**
+and starts a normal live session instead.
+
+Backdated entries reuse the whole workout screen, so routines, the exercise picker, the paste
+importer, "last time", and the plate calculator all work the same way. Three things differ, because
+they only make sense live:
+
+- **No rest timer.** Nothing is resting.
+- **Duration is typed, not measured.** Leave it blank and the calendar just omits it rather than
+  claiming the session took zero minutes.
+- **The time is set to midday.** A backdated log has no real start time, and midday keeps the
+  session inside the intended calendar day in every timezone — a midnight timestamp can slide into
+  the day before or after.
+
+Future dates can't be logged; the day panel says so instead of offering the button. Saving a
+backdated workout re-sorts the history so it lands in the right place, and jumps the calendar to the
+day you filled in.

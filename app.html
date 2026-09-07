@@ -11,7 +11,13 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Cadence">
-<link rel="stylesheet" href="styles.css?v=21">
+<!-- Preloaded so the font is in flight before the stylesheet is parsed, which
+     keeps the swap from being a visible reflow. crossorigin is required even
+     same-origin: fonts are always fetched in CORS mode, and without it the
+     browser fetches twice. Only the latin subset — latin-ext is fetched on
+     demand by unicode-range. -->
+<link rel="preload" href="fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="styles.css?v=22">
 <script>
   /* Set the theme before first paint, otherwise a light-mode user gets a
      black flash while app.js loads. Kept deliberately tiny and defensive. */
@@ -81,11 +87,11 @@
 <div id="viz-tip" class="viz-tip" hidden></div>
 <div id="toast" class="toast" hidden></div>
 
-<script src="util.js?v=21"></script>
-<script src="library.js?v=21"></script>
-<script src="parse.js?v=21"></script>
-<script src="plan.js?v=21"></script>
-<script src="viz.js?v=21"></script>
-<script src="app.js?v=21"></script>
+<script src="util.js?v=22"></script>
+<script src="library.js?v=22"></script>
+<script src="parse.js?v=22"></script>
+<script src="plan.js?v=22"></script>
+<script src="viz.js?v=22"></script>
+<script src="app.js?v=22"></script>
 </body>
 </html>

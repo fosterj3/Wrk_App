@@ -90,6 +90,7 @@ Then open <http://localhost:8080/>.
 | `styles.css` | Styling, dark theme, mobile-first layout |
 | `sw.js` | Service worker for offline use |
 | `manifest.webmanifest` | Makes it installable as a PWA |
+| `fonts/` | Self-hosted Inter (variable woff2) plus its OFL licence |
 | `tools/serve.ps1` | Local static server for development |
 
 ### Releasing a change
@@ -104,6 +105,10 @@ have to stay in step:
 
 **Bump both to the same number on every release.** A changed `?v=` is a new URL, so the browser
 cannot serve a stale copy of it, and `ASSET_V` names the cache so the old one is dropped.
+
+The font files in `fonts/` are the deliberate exception — no `?v=` on those. The filename is the
+version and the bytes never change, so versioning them would re-download 130KB on every release for
+nothing. They are still listed in the worker's shell so they are cached for offline use.
 
 The service worker also fetches with `cache: no-cache`, forcing a revalidation rather than trusting
 a `max-age` copy, and installs with `cache: reload` so it can never bake a stale file into a fresh
@@ -174,6 +179,60 @@ drift apart.
 
 `index.html` sets `data-theme` in a small inline script before the stylesheet paints. Without it a
 light-mode user gets a black flash on every load.
+
+
+## The typeface
+
+The app is set in **Inter**, on every device, rather than in each platform's own UI font.
+
+The font is **self-hosted** in `fonts/`, not linked from Google Fonts. Two reasons, both of which
+matter more here than the convenience of a `<link>`:
+
+- The landing page promises that nobody can see your training. A Google Fonts link would send a
+  request from every device on every launch — not your workout data, but your IP and the fact that
+  you opened the app, to a third party. That is a strange thing to do in an app whose entire pitch
+  is that there is no server.
+- **A basement gym has no signal.** A font on a CDN is a font that doesn't render. These files are
+  in the service worker's shell cache, so an installed Cadence looks the same offline as online.
+
+It is the **variable** font — one file covering weights 100–900. That is what lets the several
+`font-weight:650` rules mean 650, instead of rounding to 700 as they did against the system stack.
+
+Some specifics worth not undoing by accident:
+
+- `font-display:swap`, so text is readable immediately in the fallback and reflows when Inter
+  lands. Never invisible text.
+- The `unicode-range` split means **latin-ext (83KB) is only fetched if a page actually uses those
+  characters.** Most people only ever download the 47KB latin file.
+- Both HTML files `<link rel="preload">` the latin subset. `crossorigin` is required there even
+  though the file is same-origin — fonts are always fetched in CORS mode, and without the attribute
+  the browser fetches it twice.
+- The font files carry **no `?v=`**. The filename is the version, and they are content-stable, so
+  re-downloading 130KB on every release would be waste.
+- The system stack is still listed behind Inter in `--font`. It is the fallback during the swap and
+  if the file ever fails — not a device-dependent choice.
+
+Inter is licensed under the SIL Open Font License; `fonts/OFL.txt` ships alongside it, as that
+licence requires.
+
+### What changing the font broke
+
+Inter sets about **11% wider** than the system fonts the layout had been tuned against, which is a
+good argument for checking rather than assuming. Everything survived at 375px except one thing, and
+it was a latent bug rather than a font problem: the progress line chart always forces a label onto
+the final point — it is the number you came to see — *in addition to* labelling every Nth. When the
+series length isn't a neat multiple, those two land next to each other. It fit in Segoe UI and
+collided in Inter.
+
+Fixed in `lineChart` by keeping both ends and dropping any middle label that can't clear them by
+`PLOT_W / 6`. The gap is a fraction of the plot rather than a pixel guess, so it holds whatever
+font is rendering.
+
+Two places that used to be monospace are now Inter as well: the paste textarea, and the "lines I
+couldn't read" list. Monospace was device-dependent too — SFMono on iOS, Consolas on Windows — so
+leaving it would have defeated the point. The landing page's "Your notes" sample is also sans now,
+which is arguably more honest: iOS Notes and Google Keep both set plain text in the system sans,
+not in a monospace face.
 
 ## The data tab
 

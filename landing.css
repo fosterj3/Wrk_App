@@ -62,9 +62,11 @@ body.landing{
   font-size:11px;text-transform:uppercase;letter-spacing:.07em;
   color:var(--muted);margin-bottom:10px;
 }
+/* Sans, not mono: this is meant to read like the notes app it came from, and
+   iOS Notes and Google Keep both set plain text in the system sans. */
 .demo-side pre{
   margin:0;white-space:pre-wrap;color:var(--text);
-  font:13px/1.7 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font:13px/1.7 var(--font);
 }
 .demo-arrow{font-size:26px;color:var(--accent-fg)}
 

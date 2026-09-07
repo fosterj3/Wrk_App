@@ -3,7 +3,7 @@
    (landing) and app.html.
    The two must agree — that is what stops a new index.html from pairing with
    a stale app.js out of the browser's HTTP cache. */
-const ASSET_V = '21';
+const ASSET_V = '22';
 const CACHE = `cadence-v${ASSET_V}`;
 
 /* Same URLs the page actually requests, query string included, so the offline
@@ -23,6 +23,11 @@ const SHELL = [
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png',
+  /* No ?v= on the fonts: the filename is the version. They are content-stable,
+     so re-downloading 130KB on every release would be waste. Cached here so
+     the app looks the same offline as online. */
+  './fonts/inter-latin.woff2',
+  './fonts/inter-latin-ext.woff2',
 ];
 
 self.addEventListener('install', (event) => {

@@ -405,9 +405,24 @@ function lineChart(points, fmtValue) {
       + `<text class="viz-tick" x="${PAD.left - 6}" y="${y + 3.5}" text-anchor="end">${compact(v)}</text>`;
   }
 
+  /* The last point always gets a label — it's the number people actually came
+     to see — so an evenly spaced label can land right on top of it when the
+     series length isn't a neat multiple. Keep the two ends and drop any middle
+     label that can't clear them, instead of letting them collide. The gap is a
+     fraction of the plot rather than a pixel guess, so it holds regardless of
+     which font is rendering. */
+  const lastI = points.length - 1;
   const every = Math.ceil(points.length / 5);
-  const xt = points.map((p, i) => (i % every === 0 || i === points.length - 1
-    ? `<text class="viz-tick" x="${px(i)}" y="${H - 9}" text-anchor="${i === 0 ? 'start' : (i === points.length - 1 ? 'end' : 'middle')}">${esc(p.label)}</text>`
+  const MIN_GAP = PLOT_W / 6;
+  const keep = [0];
+  for (let i = every; i < lastI; i += every) {
+    if (px(i) - px(keep[keep.length - 1]) >= MIN_GAP && px(lastI) - px(i) >= MIN_GAP) keep.push(i);
+  }
+  if (lastI > 0) keep.push(lastI);
+
+  const shownLabels = new Set(keep);
+  const xt = points.map((p, i) => (shownLabels.has(i)
+    ? `<text class="viz-tick" x="${px(i)}" y="${H - 9}" text-anchor="${i === 0 ? 'start' : (i === lastI ? 'end' : 'middle')}">${esc(p.label)}</text>`
     : '')).join('');
 
   return `<svg class="viz" viewBox="0 0 ${W} ${H}" role="img" aria-label="Progress over time">

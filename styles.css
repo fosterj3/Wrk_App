@@ -1,17 +1,81 @@
+/* Dark is the default; :root[data-theme="light"] swaps the palette.
+   Every colour in this file goes through a token — no raw hex in the rules
+   below — so the two themes can't drift apart. */
 :root{
-  --bg:#0f1115;
-  --surface:#171a21;
-  --surface-2:#1f242e;
-  --line:#2a3140;
-  --text:#e8ecf3;
-  --muted:#98a2b3;
-  --accent:#4f8cff;
-  --accent-ink:#ffffff;
-  --good:#37c978;
+  color-scheme:dark;
+
+  --bg:#08060c;                /* near-black */
+  --surface:#130f1c;
+  --surface-2:#1d1730;
+  --line:#312748;
+  --text:#ffffff;
+  --muted:#a99ec4;
+
+  --accent:#7c3aed;            /* royal purple, as a fill */
+  --accent-ink:#ffffff;        /* text sitting on --accent */
+  --accent-fg:#b79cff;         /* purple as text, readable on --bg */
+
+  --good:#3ddc84;
+  --good-ink:#04240f;
   --warn:#ffb020;
-  --danger:#ff5c5c;
+  --danger:#ff6b6b;
+
+  --chip-ink:#0b0714;
+  --scrim:rgba(0,0,0,.6);
+  --tabbar-bg:rgba(19,15,28,.93);
+  --day-active:#241c3c;
+
+  --done-bg:#0f2418;
+  --done-line:#1f5137;
+
+  --pill-lift-line:#3b2a63;
+  --pill-cardio-line:#4a3a1a;
+
+  --warnbox-bg:#241d0e;
+  --warnbox-line:#4a3a1a;
+  --warnbox-text:#f0d9a8;
+
+  --shadow:0 8px 28px rgba(0,0,0,.5);
+
   --radius:14px;
   --tabbar-h:64px;
+}
+
+:root[data-theme="light"]{
+  color-scheme:light;
+
+  --bg:#f5f3ed;
+  --surface:#ffffff;
+  --surface-2:#eeebe2;
+  --line:#dcd7c9;
+  --text:#111111;
+  --muted:#5f5a50;
+
+  --accent:#6d28d9;
+  --accent-ink:#ffffff;
+  --accent-fg:#5b21b6;
+
+  --good:#15803d;
+  --good-ink:#ffffff;
+  --warn:#b45309;
+  --danger:#b91c1c;
+
+  --chip-ink:#ffffff;
+  --scrim:rgba(30,24,45,.35);
+  --tabbar-bg:rgba(255,255,255,.94);
+  --day-active:#efe9fb;        /* a purple tint so trained days still pop */
+
+  --done-bg:#e8f5ec;
+  --done-line:#8fc7a5;
+
+  --pill-lift-line:#cfc0ee;
+  --pill-cardio-line:#e2c9a3;
+
+  --warnbox-bg:#fdf3e0;
+  --warnbox-line:#e2c9a3;
+  --warnbox-text:#5c4218;
+
+  --shadow:0 8px 28px rgba(60,50,30,.16);
 }
 
 *{box-sizing:border-box}
@@ -77,7 +141,7 @@ input,select{font:inherit}
 .btn.danger{background:transparent;color:var(--danger);border-color:var(--line)}
 .ghost{background:transparent;border:1px solid var(--line);border-radius:10px;padding:8px 12px;color:var(--text)}
 .ghost.small{padding:6px 10px;font-size:13px}
-.linkish{background:none;border:0;color:var(--accent);padding:4px;font-weight:600}
+.linkish{background:none;border:0;color:var(--accent-fg);padding:4px;font-weight:600}
 .icon-btn{background:transparent;border:0;color:var(--muted);font-size:20px;line-height:1;padding:6px 8px;border-radius:8px}
 .icon-btn:hover{color:var(--text);background:var(--surface-2)}
 
@@ -97,8 +161,8 @@ input,select{font:inherit}
   font-size:11px;text-transform:uppercase;letter-spacing:.06em;
   padding:3px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted);
 }
-.pill.cardio{color:var(--warn);border-color:#4a3a1a}
-.pill.lifting{color:var(--accent);border-color:#243b63}
+.pill.cardio{color:var(--warn);border-color:var(--pill-cardio-line)}
+.pill.lifting{color:var(--accent-fg);border-color:var(--pill-lift-line)}
 
 .set-grid{display:grid;gap:8px}
 .set-head,.set-row{display:grid;gap:8px;align-items:center}
@@ -113,13 +177,13 @@ input.cell{
   font-variant-numeric:tabular-nums;
 }
 input.cell:focus{outline:2px solid var(--accent);outline-offset:-1px}
-.set-row.done input.cell{border-color:#1f4d33;background:#10231a}
+.set-row.done input.cell{border-color:var(--done-line);background:var(--done-bg)}
 
 .check{
   width:44px;height:42px;border-radius:10px;border:1px solid var(--line);
   background:var(--surface-2);color:var(--muted);font-size:17px;
 }
-.check.on{background:var(--good);border-color:var(--good);color:#05270f}
+.check.on{background:var(--good);border-color:var(--good);color:var(--good-ink)}
 
 /* ---------- forms ---------- */
 label.field{display:block;margin-bottom:12px}
@@ -135,8 +199,8 @@ input.text:focus,select.text:focus{outline:2px solid var(--accent);outline-offse
   position:fixed;left:0;right:0;bottom:0;z-index:30;
   height:calc(var(--tabbar-h) + env(safe-area-inset-bottom));
   padding-bottom:env(safe-area-inset-bottom);
-  display:grid;grid-template-columns:repeat(5,1fr);
-  background:rgba(23,26,33,.92);backdrop-filter:blur(12px);
+  display:grid;grid-template-columns:repeat(4,1fr);
+  background:var(--tabbar-bg);backdrop-filter:blur(12px);
   border-top:1px solid var(--line);
 }
 .tab{
@@ -145,7 +209,7 @@ input.text:focus,select.text:focus{outline:2px solid var(--accent);outline-offse
   font-size:11px;font-weight:600;
 }
 .tab-ico{font-size:17px;line-height:1}
-.tab.is-active{color:var(--accent)}
+.tab.is-active{color:var(--accent-fg)}
 
 /* ---------- rest bar ---------- */
 .rest-bar{
@@ -161,7 +225,7 @@ input.text:focus,select.text:focus{outline:2px solid var(--accent);outline-offse
 
 /* ---------- sheet ---------- */
 .sheet{position:fixed;inset:0;z-index:60;display:flex;align-items:flex-end}
-.sheet-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.55)}
+.sheet-backdrop{position:absolute;inset:0;background:var(--scrim)}
 .sheet-panel{
   position:relative;width:100%;max-height:86vh;display:flex;flex-direction:column;
   background:var(--surface);border-radius:18px 18px 0 0;border-top:1px solid var(--line);
@@ -178,7 +242,7 @@ input.text:focus,select.text:focus{outline:2px solid var(--accent);outline-offse
   padding:12px;margin-bottom:8px;
 }
 .pick:active{border-color:var(--accent)}
-.pick .grow{flex:1;min-width:0}
+.grow{flex:1;min-width:0}
 .pick .nm{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 /* ---------- toast ---------- */
@@ -186,7 +250,7 @@ input.text:focus,select.text:focus{outline:2px solid var(--accent);outline-offse
   position:fixed;left:50%;transform:translateX(-50%);
   bottom:calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 18px);
   z-index:80;background:var(--surface-2);border:1px solid var(--line);
-  padding:11px 16px;border-radius:999px;font-size:14px;box-shadow:0 8px 28px rgba(0,0,0,.45);
+  padding:11px 16px;border-radius:999px;font-size:14px;box-shadow:var(--shadow);
 }
 
 @media (min-width:640px){
@@ -205,7 +269,7 @@ textarea.text{
 textarea.text:focus{outline:2px solid var(--accent);outline-offset:-1px}
 
 .warnbox{
-  background:#241d0e;border:1px solid #4a3a1a;color:#f0d9a8;
+  background:var(--warnbox-bg);border:1px solid var(--warnbox-line);color:var(--warnbox-text);
   border-radius:12px;padding:12px;margin-top:12px;font-size:14px;
 }
 .warnbox strong{display:block;margin-bottom:6px;color:var(--warn)}
@@ -240,7 +304,7 @@ textarea.text:focus{outline:2px solid var(--accent);outline-offset:-1px}
   overflow:hidden;
 }
 .cal-cell.out{opacity:.3}
-.cal-cell.has{background:var(--surface-2)}
+.cal-cell.has{background:var(--day-active)}
 .cal-cell.today .cal-num{
   background:var(--accent);color:var(--accent-ink);
   border-radius:50%;width:22px;height:22px;display:grid;place-items:center;
@@ -260,7 +324,7 @@ textarea.text:focus{outline:2px solid var(--accent);outline-offset:-1px}
 .cal-chip{
   width:100%;font-size:9.5px;line-height:1.35;padding:2px 3px;border-radius:4px;
   overflow:hidden;white-space:nowrap;text-overflow:ellipsis;
-  color:#08111f;font-weight:600;
+  color:var(--chip-ink);font-weight:600;
 }
 
 .cal-legend{

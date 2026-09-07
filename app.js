@@ -9,7 +9,8 @@ const STORE_KEY = 'wrk.v1';
 
 const DEFAULTS = {
   version: 1,
-  settings: { units: 'lb', restSeconds: 90, calendarView: 'month' },
+  /* theme is left null until first run, when it follows the OS preference. */
+  settings: { units: 'lb', restSeconds: 90, calendarView: 'month', theme: null },
   routines: [],
   sessions: [],
   active: null,
@@ -107,13 +108,6 @@ function fmtDuration(ms) {
   return `${Math.floor(min / 60)}h ${min % 60}m`;
 }
 
-function fmtDate(iso) {
-  const d = new Date(iso);
-  const sameDay = (a, b) => a.toDateString() === b.toDateString();
-  if (sameDay(d, new Date())) return 'Today';
-  if (sameDay(d, new Date(Date.now() - 86400000))) return 'Yesterday';
-  return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
-}
 
 let toastTimer;
 function toast(msg) {
@@ -122,6 +116,18 @@ function toast(msg) {
   el.hidden = false;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { el.hidden = true; }, 2200);
+}
+
+/* ------------------------------------------------------------------- theme */
+
+const THEME_BAR = { dark: '#08060c', light: '#f5f3ed' };
+
+function applyTheme() {
+  const theme = state.settings.theme === 'light' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', theme);
+  /* Keeps the Android status bar in step with the app. */
+  const meta = $('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', THEME_BAR[theme]);
 }
 
 /* ------------------------------------------------------------------ sheets */
@@ -198,7 +204,6 @@ const TITLES = {
   workout: 'Workout',
   routines: 'Routines',
   calendar: 'Calendar',
-  history: 'History',
   settings: 'Settings',
 };
 
@@ -214,7 +219,6 @@ function render() {
   if (currentView === 'workout') renderWorkout();
   if (currentView === 'routines') renderRoutines();
   if (currentView === 'calendar') renderCalendar();
-  if (currentView === 'history') renderHistory();
   if (currentView === 'settings') renderSettings();
 }
 
@@ -426,7 +430,9 @@ function finishSession() {
   stopRest();
   save();
   toast('Workout saved');
-  go('history');
+  calCursor = new Date();
+  calSelected = dayKey(calCursor);
+  go('calendar');
 }
 
 /* ----------------------------------------------------------- routines view */
@@ -812,8 +818,14 @@ function renderDayDetail(key, sessions) {
         const time = new Date(s.date).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
         return `
         <div class="sess k-${sessionKind(s)}">
-          <div style="font-weight:650">${esc(s.name)}</div>
-          <div class="small muted">${time} &middot; ${fmtDuration(s.durationMs)} &middot; ${sets} set${sets === 1 ? '' : 's'}</div>
+          <div class="row">
+            <div class="grow">
+              <div style="font-weight:650">${esc(s.name)}</div>
+              <div class="small muted">${time} &middot; ${fmtDuration(s.durationMs)} &middot; ${sets} set${sets === 1 ? '' : 's'}</div>
+            </div>
+            <button class="icon-btn" data-action="delete-session" data-id="${s.id}"
+                    aria-label="Delete ${esc(s.name)}">&#128465;</button>
+          </div>
           ${s.entries.map((e) => `
             <div class="small" style="margin-top:6px">
               <span style="font-weight:600">${esc(e.name)}</span>
@@ -826,44 +838,6 @@ function renderDayDetail(key, sessions) {
     </div>`;
 }
 
-/* ------------------------------------------------------------ history view */
-
-function renderHistory() {
-  const el = $('#view-history');
-  $('#btn-header-action').hidden = true;
-
-  if (!state.sessions.length) {
-    el.innerHTML = `
-      <div class="empty">
-        <h3>Nothing logged yet</h3>
-        <p>Finished workouts show up here.</p>
-      </div>`;
-    return;
-  }
-
-  el.innerHTML = state.sessions.map((s) => {
-    const totalSets = s.entries.reduce((n, e) => n + e.sets.length, 0);
-    return `
-    <div class="card">
-      <div class="card-head">
-        <div>
-          <div class="card-title">${esc(s.name)}</div>
-          <div class="card-sub">${fmtDate(s.date)} &middot; ${fmtDuration(s.durationMs)} &middot; ${totalSets} sets</div>
-        </div>
-        <button class="icon-btn" data-action="delete-session" data-id="${s.id}" aria-label="Delete">&#128465;</button>
-      </div>
-      ${s.entries.map((e) => `
-        <div style="margin-top:8px">
-          <div class="small" style="font-weight:600">${esc(e.name)}</div>
-          <div class="small muted">${e.sets.map((set) => e.type === 'cardio'
-            ? `${esc(set.distance) || '—'} / ${esc(set.minutes) || '—'}min`
-            : `${esc(set.weight) || '—'}${state.settings.units}&times;${esc(set.reps) || '—'}`
-          ).join(' &nbsp; ')}</div>
-        </div>`).join('')}
-    </div>`;
-  }).join('');
-}
-
 /* ----------------------------------------------------------- settings view */
 
 function renderSettings() {
@@ -874,6 +848,13 @@ function renderSettings() {
   el.innerHTML = `
     <div class="card">
       <div class="card-title" style="margin-bottom:12px">Preferences</div>
+      <label class="field">
+        <span>Appearance</span>
+        <div class="seg">
+          <button data-action="theme" data-val="dark" class="${st.theme === 'light' ? '' : 'on'}">Dark</button>
+          <button data-action="theme" data-val="light" class="${st.theme === 'light' ? 'on' : ''}">Light</button>
+        </div>
+      </label>
       <label class="field">
         <span>Weight units</span>
         <select class="text" data-setting="units">
@@ -1279,6 +1260,13 @@ document.addEventListener('click', (ev) => {
       break;
 
     /* ---- settings ---- */
+    case 'theme':
+      state.settings.theme = btn.dataset.val;
+      save();
+      applyTheme();
+      render();
+      break;
+
     case 'export':
       exportData();
       break;
@@ -1331,6 +1319,14 @@ setInterval(() => {
 }, 30000);
 
 window.addEventListener('beforeunload', save);
+
+/* First run: follow whatever the phone is already set to. */
+if (!state.settings.theme) {
+  state.settings.theme = window.matchMedia
+    && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  save();
+}
+applyTheme();
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {

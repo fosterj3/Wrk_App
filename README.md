@@ -11,8 +11,8 @@ Log lifting and cardio, save reusable routines, and time your rest between sets.
 - **Paste from your notes** — paste a workout or a whole program straight out of Notes and it becomes routines, with sets, reps and weights filled in. It shows you what it understood before saving anything.
 - **Routines** — save a workout as a template ("Push Day A") and load it instead of retyping it every session.
 - **Rest timer** — starts automatically when you tick a set, with a chime and a vibration when it's up. Configurable, or off.
-- **Calendar** — month and week views showing which days you trained, colour-coded by what you did. Tap any day to see that day's workouts in full.
-- **History** — a running list of everything you've finished.
+- **Calendar** — month and week views showing which days you trained, colour-coded by what you did. Tap any day to see that day's workouts in full, or delete one.
+- **Dark and light themes** — royal purple on black, or purple on warm off-white. Follows your phone's setting on first run; switch it any time in Settings.
 - **Works offline** — a service worker caches the app, so it runs in the gym with no signal.
 
 ## Installing it on your phone
@@ -117,3 +117,22 @@ Days are coloured by what kind of session it was:
 
 Today is circled, the selected day is outlined, and paging between months or weeks moves the
 selection with you so the panel underneath always describes something you can see.
+
+## Theming
+
+Two themes, switched in Settings → Appearance:
+
+| | Background | Accent | Text |
+| --- | --- | --- | --- |
+| Dark | Near-black `#08060c` | Royal purple `#7c3aed` | White |
+| Light | Warm off-white `#f5f3ed` | Purple `#6d28d9` | Black, white on purple |
+
+On first run it follows the phone's own light/dark setting; after that your choice sticks.
+
+Every colour in `styles.css` goes through a CSS custom property defined in the `:root` and
+`:root[data-theme="light"]` blocks at the top — **there is no raw hex anywhere else in the file**.
+Add a colour by adding a token to both blocks, not by inlining a value, or the two themes will
+drift apart.
+
+`index.html` sets `data-theme` in a small inline script before the stylesheet paints. Without it a
+light-mode user gets a black flash on every load.

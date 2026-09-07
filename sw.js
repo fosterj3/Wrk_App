@@ -1,11 +1,12 @@
 /* Offline cache. Bump CACHE when any shell file changes so clients pick it up. */
-const CACHE = 'wrk-v1';
+const CACHE = 'wrk-v2';
 
 const SHELL = [
   './',
   './index.html',
   './styles.css',
   './app.js',
+  './parse.js',
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png',

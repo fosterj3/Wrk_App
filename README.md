@@ -8,6 +8,7 @@ Log lifting and cardio, save reusable routines, and time your rest between sets.
 ## What it does
 
 - **Log workouts** — add exercises, record weight × reps (lifting) or distance / minutes (cardio), tick sets off as you go.
+- **Paste from your notes** — paste a workout or a whole program straight out of Notes and it becomes routines, with sets, reps and weights filled in. It shows you what it understood before saving anything.
 - **Routines** — save a workout as a template ("Push Day A") and load it instead of retyping it every session.
 - **Rest timer** — starts automatically when you tick a set, with a chime and a vibration when it's up. Configurable, or off.
 - **History** — a running list of everything you've finished.
@@ -58,6 +59,7 @@ Then open <http://localhost:8080/>.
 | --- | --- |
 | `index.html` | Page shell — tab bar, view containers, bottom sheet |
 | `app.js` | All app logic: state, storage, rendering, rest timer |
+| `parse.js` | Turns pasted free-form workout text into routines |
 | `styles.css` | Styling, dark theme, mobile-first layout |
 | `sw.js` | Service worker for offline use |
 | `manifest.webmanifest` | Makes it installable as a PWA |
@@ -72,3 +74,28 @@ up the new version instead of serving the old cache.
 ## Not built yet
 
 Progress charts and per-exercise trends, supersets, plate calculator, and any kind of cross-device sync.
+
+## What the paste parser understands
+
+Routines tab → **Paste from notes**. It reads the common ways people write workouts down:
+
+| You wrote | It reads |
+| --- | --- |
+| `Bench Press 3x8 @ 185` | 3 sets of 8 at 185 |
+| `Squat 5x5 315` | 5 sets of 5 at 315 |
+| `Incline DB Press 3 sets of 10` | 3 sets of 10 |
+| `RDL 3 x 8-10 @ 135` | 3 sets, 8–10 reps, 135 |
+| `Squats 12/10/8 @ 185` | three sets: 12, 10 then 8 reps |
+| `Bench Press` / `135 x 5` / `185 x 3` | one exercise with two sets at those weights |
+| `Run 3.1 mi 28 min` | cardio: 3.1 miles in 28 minutes |
+| `5k in 28 min` | cardio: 5km in 28 minutes |
+
+Headings like `Push Day A`, `Day 1`, or `Monday` split the text into separate routines.
+Shorthand is matched against the built-in exercise list, so `bench`, `OHP`, `RDL` and `pullups`
+resolve to full names; anything it doesn't recognise is kept as a custom exercise and marked *new*.
+
+Coaching notes (`rest 90s between sets`, `remember to stretch`) are skipped and listed back to you,
+so nothing disappears without you seeing it. Nothing is saved until you press **Add routines**.
+
+Weights are imported as written — if your notes are in kg and the app is set to lb, it says so
+rather than converting.

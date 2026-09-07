@@ -219,8 +219,54 @@ function newSet(type) {
     : { id: uid(), weight: '', reps: '', done: false };
 }
 
-function makeEntry(ex) {
-  return { id: uid(), name: ex.name, type: ex.type, sets: [newSet(ex.type)] };
+/* A routine item may carry target sets (from an import, or from "save as
+   routine"). Older routines have none — they just get one blank set. */
+function makeEntry(item) {
+  const type = item.type || 'lifting';
+  const targets = Array.isArray(item.sets) && item.sets.length ? item.sets : [{}];
+
+  return {
+    id: uid(),
+    name: item.name,
+    type,
+    sets: targets.map((t) => {
+      const s = newSet(type);
+      if (type === 'cardio') {
+        if (t.distance != null) s.distance = String(t.distance);
+        if (t.minutes != null) s.minutes = String(t.minutes);
+      } else {
+        if (t.weight != null) s.weight = String(t.weight);
+        if (t.reps != null) s.reps = String(t.reps);
+      }
+      return s;
+    }),
+  };
+}
+
+/* One-line description of an item's targets, e.g. "3 × 8 @ 185" or "5k / 28 min". */
+function summarizeItem(item) {
+  const sets = Array.isArray(item.sets) ? item.sets : [];
+  if (!sets.length) return '';
+
+  if (item.type === 'cardio') {
+    const s = sets[0];
+    const bits = [];
+    if (s.distance != null) bits.push(`${s.distance}${item.distanceUnit || ''}`);
+    if (s.minutes != null) bits.push(`${s.minutes} min`);
+    const per = bits.join(' / ');
+    if (!per) return '';
+    return sets.length > 1 ? `${sets.length} × ${per}` : per;
+  }
+
+  const first = sets[0];
+  const uniform = sets.every((s) => s.reps === first.reps && s.weight === first.weight);
+  if (uniform) {
+    if (first.reps == null && first.weight == null) return '';
+    let out = `${sets.length} × ${item.repsText || first.reps || '—'}`;
+    if (first.weight != null) out += ` @ ${first.weight}`;
+    return out;
+  }
+  return sets.map((s) => `${s.weight != null ? `${s.weight}×` : ''}${s.reps == null ? '—' : s.reps}`).join(', ');
 }
 
 function startSession(routine) {
@@ -390,17 +436,26 @@ function renderRoutines() {
       <div class="empty">
         <h3>No routines yet</h3>
         <p>A routine is a saved list of exercises — load it instead of retyping the same workout every time.</p>
-        <button class="btn block" data-action="new-routine">Create a routine</button>
+        <button class="btn block" data-action="paste-import">Paste from your notes</button>
+        <button class="btn block secondary" data-action="new-routine" style="margin-top:8px">Build one by hand</button>
       </div>`;
     return;
   }
 
-  el.innerHTML = state.routines.map((r) => `
+  el.innerHTML = `
+    <div class="row" style="margin-bottom:14px">
+      <button class="btn secondary" data-action="paste-import">Paste from notes</button>
+      <button class="ghost" data-action="new-routine">New</button>
+    </div>
+    ${state.routines.map((r) => `
     <div class="card">
       <div class="card-head">
         <div>
           <div class="card-title">${esc(r.name)}</div>
-          <div class="card-sub">${r.items.map((i) => esc(i.name)).join(' &middot; ') || 'No exercises yet'}</div>
+          <div class="card-sub">${r.items.map((i) => {
+            const t = summarizeItem(i);
+            return esc(i.name) + (t ? ` <span style="opacity:.7">${esc(t)}</span>` : '');
+          }).join('<br>') || 'No exercises yet'}</div>
         </div>
       </div>
       <div class="row">
@@ -409,7 +464,7 @@ function renderRoutines() {
         <div class="spacer"></div>
         <button class="icon-btn" data-action="delete-routine" data-id="${r.id}" aria-label="Delete routine">&#128465;</button>
       </div>
-    </div>`).join('');
+    </div>`).join('')}`;
 }
 
 function editRoutine(id) {
@@ -427,7 +482,7 @@ function editRoutine(id) {
           <div class="pick">
             <div class="grow">
               <div class="nm">${esc(it.name)}</div>
-              <div class="card-sub">${it.type}</div>
+              <div class="card-sub">${esc(summarizeItem(it) || it.type)}</div>
             </div>
             <button class="icon-btn" data-action="routine-remove-item" data-id="${id}" data-index="${i}">&times;</button>
           </div>`).join('')
@@ -435,6 +490,106 @@ function editRoutine(id) {
     </div>
     <button class="btn block secondary" data-action="routine-add-item" data-id="${id}" style="margin-top:8px">+ Add exercise</button>
     <button class="btn block" data-action="routine-save" data-id="${id}" style="margin-top:10px">Save routine</button>`);
+}
+
+/* ----------------------------------------------------- paste-in from notes */
+
+const SAMPLE_PASTE = `Push Day A
+Bench Press 3x8 @ 185
+Incline DB Press 3 sets of 10
+Lateral Raises 3x15
+Treadmill 20 min
+
+Pull Day
+Pull-ups 4x6
+Barbell Row 3x8 135lb
+Run 3.1 mi 28 min`;
+
+let pendingImport = null;
+
+function openImportSheet(text) {
+  openSheet('Paste from your notes', `
+    <p class="small muted" style="margin-top:0">
+      Paste a workout or a whole program. Most note formats work —
+      <code>3x8</code>, <code>3 sets of 10</code>, <code>3 x 8-10 @ 185lb</code>,
+      <code>5k in 28 min</code>. Headings like <em>Push Day</em> or <em>Day 1</em>
+      become separate routines.
+    </p>
+    <textarea class="text" id="paste-box" rows="10" spellcheck="false"
+              placeholder="${esc(SAMPLE_PASTE)}">${esc(text || '')}</textarea>
+    <button class="btn block" data-action="paste-preview" style="margin-top:10px">See what I got</button>
+    <button class="linkish" data-action="paste-sample" style="margin-top:6px">Try it with an example</button>`);
+}
+
+function renderImportPreview() {
+  const { routines, unparsed, units } = pendingImport;
+
+  if (!routines.length) {
+    openSheet('Nothing to import', `
+      <p>I couldn't find any exercises in that text.</p>
+      ${unparsed.length ? `<div class="warnbox"><strong>Lines I couldn't read</strong>
+        <ul>${unparsed.slice(0, 12).map((l) => `<li>${esc(l)}</li>`).join('')}</ul></div>` : ''}
+      <button class="btn block secondary" data-action="paste-back" style="margin-top:12px">Back to the text</button>`);
+    return;
+  }
+
+  const total = routines.reduce((n, r) => n + r.items.length, 0);
+  const unitWarning = units.length && !units.includes(state.settings.units);
+
+  openSheet('Check this over', `
+    <p class="small muted" style="margin-top:0">
+      Found ${total} exercise${total === 1 ? '' : 's'} in
+      ${routines.length} routine${routines.length === 1 ? '' : 's'}.
+      Rename anything below, or drop what you don't want.
+    </p>
+
+    ${unitWarning ? `<div class="warnbox">
+      Your notes look like <strong>${esc(units.join('/'))}</strong> but the app is set to
+      <strong>${esc(state.settings.units)}</strong>. The numbers are imported as written —
+      change the unit in Settings if that's wrong.
+    </div>` : ''}
+
+    ${routines.map((r, ri) => `
+      <div class="card" style="margin-top:12px">
+        <input class="text" data-rname="${ri}" value="${esc(r.name)}" aria-label="Routine name">
+        <div style="margin-top:10px">
+          ${r.items.map((it, ii) => {
+            const t = summarizeItem(it);
+            return `
+            <div class="pick" style="margin-bottom:6px">
+              <div class="grow">
+                <div class="nm">${esc(it.name)}
+                  ${it.custom ? '<span class="pill" style="margin-left:6px">new</span>' : ''}</div>
+                <div class="card-sub">${esc(t || 'no sets given')}</div>
+              </div>
+              <span class="pill ${it.type}">${it.type}</span>
+              <button class="icon-btn" data-action="paste-drop" data-r="${ri}" data-i="${ii}"
+                      aria-label="Remove ${esc(it.name)}">&times;</button>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>`).join('')}
+
+    ${unparsed.length ? `<div class="warnbox" style="margin-top:14px">
+      <strong>Skipped ${unparsed.length} line${unparsed.length === 1 ? '' : 's'}</strong>
+      <ul>${unparsed.slice(0, 12).map((l) => `<li>${esc(l)}</li>`).join('')}</ul>
+      ${unparsed.length > 12 ? `<p class="small">…and ${unparsed.length - 12} more.</p>` : ''}
+      <p class="small">Go back and reword these if they matter.</p>
+    </div>` : ''}
+
+    <button class="btn block" data-action="paste-confirm" style="margin-top:14px">
+      Add ${routines.length} routine${routines.length === 1 ? '' : 's'}
+    </button>
+    <button class="btn block secondary" data-action="paste-back" style="margin-top:8px">Back to the text</button>`);
+}
+
+/* Keep any name edits the user made in the preview before acting on it. */
+function syncImportNames() {
+  if (!pendingImport) return;
+  $$('[data-rname]').forEach((input) => {
+    const r = pendingImport.routines[Number(input.dataset.rname)];
+    if (r) r.name = input.value.trim() || r.name;
+  });
 }
 
 /* ------------------------------------------------------------ history view */
@@ -661,7 +816,16 @@ document.addEventListener('click', (ev) => {
       state.routines.push({
         id: uid(),
         name: name.trim() || 'Untitled routine',
-        items: state.active.entries.map((e) => ({ name: e.name, type: e.type })),
+        /* Carry the numbers across so the routine remembers your working weights. */
+        items: state.active.entries.map((e) => ({
+          name: e.name,
+          type: e.type,
+          sets: e.sets.map((s) => (e.type === 'cardio'
+            ? { ...(s.distance !== '' && { distance: Number(s.distance) }),
+                ...(s.minutes !== '' && { minutes: Number(s.minutes) }) }
+            : { ...(s.weight !== '' && { weight: Number(s.weight) }),
+                ...(s.reps !== '' && { reps: Number(s.reps) }) })),
+        })),
       });
       save();
       toast('Routine saved');
@@ -731,6 +895,52 @@ document.addEventListener('click', (ev) => {
     case 'edit-routine':
       editRoutine(id);
       break;
+
+    /* ---- paste-in from notes ---- */
+    case 'paste-import':
+      openImportSheet('');
+      break;
+
+    case 'paste-sample':
+      $('#paste-box').value = SAMPLE_PASTE;
+      break;
+
+    case 'paste-preview': {
+      const text = $('#paste-box').value;
+      if (!text.trim()) { toast('Paste something first'); return; }
+      pendingImport = parseWorkoutText(text);
+      pendingImport.text = text;
+      renderImportPreview();
+      break;
+    }
+
+    case 'paste-back':
+      syncImportNames();
+      openImportSheet(pendingImport ? pendingImport.text : '');
+      break;
+
+    case 'paste-drop': {
+      syncImportNames();
+      const r = pendingImport.routines[Number(btn.dataset.r)];
+      r.items.splice(Number(btn.dataset.i), 1);
+      pendingImport.routines = pendingImport.routines.filter((x) => x.items.length);
+      renderImportPreview();
+      break;
+    }
+
+    case 'paste-confirm': {
+      syncImportNames();
+      const added = pendingImport.routines.length;
+      pendingImport.routines.forEach((r) => {
+        state.routines.push({ id: uid(), name: r.name, items: r.items });
+      });
+      pendingImport = null;
+      save();
+      closeSheet();
+      go('routines');
+      toast(`Added ${added} routine${added === 1 ? '' : 's'}`);
+      break;
+    }
 
     case 'delete-routine':
       if (!confirm('Delete this routine? Workouts you already logged are not affected.')) return;

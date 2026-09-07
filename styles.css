@@ -194,3 +194,26 @@ input.text:focus,select.text:focus{outline:2px solid var(--accent);outline-offse
   .tabbar{max-width:640px;margin-inline:auto;border-radius:16px 16px 0 0}
   .rest-bar{max-width:640px;margin-inline:auto}
 }
+
+/* ---------- paste-in from notes ---------- */
+textarea.text{
+  width:100%;background:var(--surface-2);border:1px solid var(--line);
+  border-radius:10px;padding:12px;color:var(--text);
+  font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  resize:vertical;min-height:180px;
+}
+textarea.text:focus{outline:2px solid var(--accent);outline-offset:-1px}
+
+.warnbox{
+  background:#241d0e;border:1px solid #4a3a1a;color:#f0d9a8;
+  border-radius:12px;padding:12px;margin-top:12px;font-size:14px;
+}
+.warnbox strong{display:block;margin-bottom:6px;color:var(--warn)}
+.warnbox ul{margin:0;padding-left:18px}
+.warnbox li{margin:2px 0;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px}
+.warnbox p{margin:8px 0 0}
+
+.sheet-body code{
+  background:var(--surface-2);border:1px solid var(--line);border-radius:5px;
+  padding:1px 5px;font-size:12.5px;
+}

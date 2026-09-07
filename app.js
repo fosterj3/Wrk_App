@@ -62,20 +62,30 @@ const LIBRARY = [
   { name: 'Romanian Deadlift', type: 'lifting', group: 'Legs' },
   { name: 'Leg Press', type: 'lifting', group: 'Legs' },
   { name: 'Walking Lunge', type: 'lifting', group: 'Legs' },
+  { name: 'Goblet Squat', type: 'lifting', group: 'Legs' },
+  { name: 'Bodyweight Squat', type: 'lifting', group: 'Legs' },
+  { name: 'Dumbbell Lunge', type: 'lifting', group: 'Legs' },
+  { name: 'Dumbbell Romanian Deadlift', type: 'lifting', group: 'Legs' },
+  { name: 'Glute Bridge', type: 'lifting', group: 'Legs' },
   { name: 'Leg Curl', type: 'lifting', group: 'Legs' },
   { name: 'Calf Raise', type: 'lifting', group: 'Legs' },
   { name: 'Barbell Bench Press', type: 'lifting', group: 'Chest' },
   { name: 'Incline Dumbbell Press', type: 'lifting', group: 'Chest' },
   { name: 'Push-Up', type: 'lifting', group: 'Chest' },
+  { name: 'Dumbbell Bench Press', type: 'lifting', group: 'Chest' },
+  { name: 'Pike Push-Up', type: 'lifting', group: 'Shoulders' },
   { name: 'Cable Fly', type: 'lifting', group: 'Chest' },
   { name: 'Overhead Press', type: 'lifting', group: 'Shoulders' },
   { name: 'Dumbbell Lateral Raise', type: 'lifting', group: 'Shoulders' },
   { name: 'Face Pull', type: 'lifting', group: 'Shoulders' },
+  { name: 'Dumbbell Shoulder Press', type: 'lifting', group: 'Shoulders' },
   { name: 'Deadlift', type: 'lifting', group: 'Back' },
   { name: 'Pull-Up', type: 'lifting', group: 'Back' },
   { name: 'Lat Pulldown', type: 'lifting', group: 'Back' },
   { name: 'Barbell Row', type: 'lifting', group: 'Back' },
   { name: 'Seated Cable Row', type: 'lifting', group: 'Back' },
+  { name: 'Dumbbell Row', type: 'lifting', group: 'Back' },
+  { name: 'Inverted Row', type: 'lifting', group: 'Back' },
   { name: 'Barbell Curl', type: 'lifting', group: 'Arms' },
   { name: 'Dumbbell Curl', type: 'lifting', group: 'Arms' },
   { name: 'Triceps Pushdown', type: 'lifting', group: 'Arms' },
@@ -861,16 +871,19 @@ function renderRoutines() {
     el.innerHTML = `
       <div class="empty">
         <h3>No routines yet</h3>
-        <p>A routine is a saved list of exercises — load it instead of retyping the same workout every time.</p>
-        <button class="btn block" data-action="paste-import">Paste from your notes</button>
+        <p>Already have a program? Paste it in. Not sure where to start? Answer four
+          questions and Cadence will write you one.</p>
+        <button class="btn block" data-action="plan-start">Build me a plan</button>
+        <button class="btn block secondary" data-action="paste-import" style="margin-top:8px">Paste from your notes</button>
         <button class="btn block secondary" data-action="new-routine" style="margin-top:8px">Build one by hand</button>
       </div>`;
     return;
   }
 
   el.innerHTML = `
-    <div class="row" style="margin-bottom:14px">
-      <button class="btn secondary" data-action="paste-import">Paste from notes</button>
+    <div class="row wrap" style="margin-bottom:14px">
+      <button class="btn secondary" data-action="plan-start">Build me a plan</button>
+      <button class="ghost" data-action="paste-import">Paste from notes</button>
       <button class="ghost" data-action="new-routine">New</button>
     </div>
     ${state.routines.map((r) => `
@@ -923,6 +936,94 @@ function editRoutine(id) {
     </div>
     <button class="btn block secondary" data-action="routine-add-item" data-id="${id}" style="margin-top:8px">+ Add exercise</button>
     <button class="btn block" data-action="routine-save" data-id="${id}" style="margin-top:10px">Save routine</button>`);
+}
+
+/* --------------------------------------------------------- build me a plan */
+
+let planAnswers = null;
+
+const PLAN_STEPS = [
+  {
+    key: 'goal',
+    title: 'What are you after?',
+    lead: 'Pick the closest one — you can change the plan afterwards.',
+    options: () => Object.entries(PLAN_GOALS).map(([value, o]) => ({ value, ...o })),
+  },
+  {
+    key: 'days',
+    title: 'How many days a week?',
+    lead: 'Be honest rather than optimistic. A plan you finish beats a better one you abandon.',
+    options: () => [
+      { value: 2, label: '2 days', blurb: 'Enough to make real progress' },
+      { value: 3, label: '3 days', blurb: 'The sweet spot for most people' },
+      { value: 4, label: '4 days', blurb: 'More volume, needs more time' },
+      { value: 5, label: '5 days', blurb: 'Only if you can hold it' },
+    ],
+  },
+  {
+    key: 'equipment',
+    title: 'What can you train with?',
+    lead: '',
+    options: () => Object.entries(PLAN_EQUIPMENT).map(([value, o]) => ({ value, ...o })),
+  },
+  {
+    key: 'level',
+    title: 'How much lifting have you done?',
+    lead: '',
+    options: () => Object.entries(PLAN_LEVELS).map(([value, o]) => ({ value, ...o })),
+  },
+];
+
+function startPlanWizard() {
+  planAnswers = {};
+  renderPlanStep();
+}
+
+function renderPlanStep() {
+  const step = PLAN_STEPS.find((s) => planAnswers[s.key] === undefined);
+  if (!step) { renderPlanPreview(); return; }
+  const n = PLAN_STEPS.indexOf(step) + 1;
+
+  openSheet('Build me a plan', `
+    <p class="small muted" style="margin-top:0">Step ${n} of ${PLAN_STEPS.length}</p>
+    <h3 style="margin:0 0 6px">${esc(step.title)}</h3>
+    ${step.lead ? `<p class="small muted" style="margin:0 0 14px">${esc(step.lead)}</p>` : ''}
+    ${step.options().map((o) => `
+      <button class="pick" data-action="plan-answer" data-key="${step.key}" data-val="${esc(o.value)}">
+        <div class="grow">
+          <div class="nm">${esc(o.label)}</div>
+          ${o.blurb ? `<div class="card-sub">${esc(o.blurb)}</div>` : ''}
+        </div>
+        <span class="muted">&rsaquo;</span>
+      </button>`).join('')}
+    ${n > 1 ? '<button class="linkish" data-action="plan-back" style="margin-top:8px">&lsaquo; Back</button>' : ''}`);
+}
+
+function renderPlanPreview() {
+  const plan = buildPlan(planAnswers);
+
+  openSheet('Your plan', `
+    <p class="small muted" style="margin-top:0">${esc(plan.summary)}</p>
+
+    ${plan.routines.map((r) => `
+      <div class="card" style="margin-top:10px">
+        <div class="card-title">${esc(r.name)}</div>
+        ${r.items.map((it) => `
+          <div class="plan-row">
+            <span>${esc(it.name)}</span>
+            <span class="muted">${esc(summarizeItem(it))}</span>
+          </div>`).join('')}
+      </div>`).join('')}
+
+    <div class="card" style="margin-top:14px">
+      <div class="card-title">How to run it</div>
+      ${plan.notes.map((t) => `<p class="small muted" style="margin:8px 0 0">${esc(t)}</p>`).join('')}
+    </div>
+
+    <button class="btn block" data-action="plan-save" style="margin-top:14px">
+      Add ${plan.routines.length} routine${plan.routines.length === 1 ? '' : 's'} &amp; set my goal
+    </button>
+    <button class="btn block secondary" data-action="plan-restart" style="margin-top:8px">Start over</button>`);
 }
 
 /* ----------------------------------------------------- paste-in from notes */
@@ -1909,6 +2010,44 @@ document.addEventListener('click', (ev) => {
     case 'edit-routine':
       editRoutine(id);
       break;
+
+    /* ---- build me a plan ---- */
+    case 'plan-start':
+      startPlanWizard();
+      break;
+
+    case 'plan-answer': {
+      const { key, val } = btn.dataset;
+      planAnswers[key] = key === 'days' ? Number(val) : val;
+      renderPlanStep();
+      break;
+    }
+
+    case 'plan-back': {
+      /* Clear the last answered step and re-ask it. */
+      const answered = PLAN_STEPS.filter((s) => planAnswers[s.key] !== undefined);
+      if (answered.length) delete planAnswers[answered[answered.length - 1].key];
+      renderPlanStep();
+      break;
+    }
+
+    case 'plan-restart':
+      startPlanWizard();
+      break;
+
+    case 'plan-save': {
+      const plan = buildPlan(planAnswers);
+      plan.routines.forEach((r) => {
+        state.routines.push({ id: uid(), name: r.name, items: r.items });
+      });
+      state.settings.weeklyGoal = plan.weeklyGoal;
+      planAnswers = null;
+      save();
+      closeSheet();
+      go('routines');
+      toast(`${plan.routines.length} routines added`);
+      break;
+    }
 
     /* ---- paste-in from notes ---- */
     case 'paste-import':

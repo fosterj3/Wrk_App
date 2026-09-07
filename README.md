@@ -13,6 +13,7 @@ installed copy, so only the product name changed.
 ## What it does
 
 - **Log workouts** — add exercises, record weight × reps (lifting) or distance / minutes (cardio), tick sets off as you go.
+- **Build me a plan** — four questions (goal, days, equipment, experience) and Cadence writes you a real starting program, with notes on how to run it.
 - **Paste from your notes** — paste a workout or a whole program straight out of Notes and it becomes routines, with sets, reps and weights filled in. It shows you what it understood before saving anything.
 - **Routines** — save a workout as a template ("Push Day A") and load it instead of retyping it every session.
 - **Last time you did this** — every exercise shows what you lifted last session, with a Repeat button to copy those numbers in.
@@ -79,6 +80,7 @@ Then open <http://localhost:8080/>.
 | `landing.css` | Landing page styling (palette tokens come from `styles.css`) |
 | `app.js` | All app logic: state, storage, rendering, rest timer |
 | `parse.js` | Turns pasted free-form workout text into routines |
+| `plan.js` | Builds a starting program from a goal (the "where do I start" answer) |
 | `viz.js` | Chart building and stats aggregation for the Data tab |
 | `styles.css` | Styling, dark theme, mobile-first layout |
 | `sw.js` | Service worker for offline use |
@@ -105,7 +107,7 @@ the *second* refresh, which reads as "my deploy did not work".
 
 ## Not built yet
 
-Supersets, cross-device sync, friends, notifications, and nutrition tracking.
+Supersets, cross-device sync, friends, notifications, an AI coach chat, and nutrition tracking.
 
 ## What the paste parser understands
 
@@ -366,3 +368,53 @@ one session. Session duration isn't in the CSV, so re-imported workouts show no 
 The app's top-right corner links back to the landing page. It points at `index.html?from=app`
 rather than plain `index.html`: the landing page sends home-screen launches straight to the app, so
 without that marker an installed user would tap Home and be bounced immediately back.
+
+## Build me a plan
+
+Routines → **Build me a plan**. Four questions — goal, days per week, equipment, experience — and
+it writes a program into your routines and sets your weekly goal to match. Preview first; nothing
+saves until you confirm.
+
+Deliberately **not** an LLM. Someone asking "where do I start" needs a correct answer instantly and
+offline, and the answers here are settled training practice rather than novel advice. A chat coach
+would also need an API key, which cannot live in a static site — see below.
+
+### How it generates
+
+Days are **movement-pattern slots** (squat, hinge, horizontal push, vertical pull, lunge, calf,
+curl, triceps, lateral, core), and your equipment decides which exercise fills each slot. One set of
+templates therefore covers a full gym, a pair of dumbbells, or nothing at all, and every exercise it
+prescribes is guaranteed to exist in the app's library with a matching type.
+
+Judgment encoded in it, rather than hidden in prose:
+
+- **Full-body days by default.** A body-part split trains each movement once a week; three full-body
+  days train each one three times, and missing a day costs less. A split is only used at four days,
+  or at three days for someone experienced chasing strength or size.
+- **Bodyweight never gets a split.** Without equipment a "Push" day has no lateral raise or
+  pushdown, and for a beginner both push slots regress to the same movement — the day collapses to
+  one exercise. Bodyweight always gets full-body sessions, three distinct ones maximum.
+- **Beginners get a set removed** from every exercise. Early on the limit is recovery and technique,
+  not effort.
+- **Bodyweight beginners get regressions.** Prescribing `Pull-Up 3x10` to someone who can't do one
+  isn't a plan; that slot becomes an Inverted Row, and Pike Push-Ups become Push-Ups.
+- **Weights are left blank on purpose**, with the reason explained in the plan: find your working
+  weight in session one, and "last time" carries it from then on.
+
+Every one of the 180 goal × days × equipment × experience combinations is checked to produce at
+least three exercises per day with valid, library-resolvable exercises.
+
+### On health goals
+
+The **Health markers** goal (A1C, blood pressure) ships with a plain note that this is general
+exercise information and not medical advice, and to talk to a doctor before starting when managing
+a condition — particularly about exercise timing and hypoglycemia on glucose-lowering medication.
+Keep that note if you touch this code.
+
+### Why there's no AI chat
+
+An API key cannot ship in a static site — the app is world-readable, so the key would be scraped
+and billed. That leaves a server proxy (real hosting, real money, needs rate limiting because the
+URL is public) or asking every user for their own key. The guided builder covers the common
+"where do I start" case with neither, and `plan.js` is a clean seam if a chat layer is ever added
+on top.

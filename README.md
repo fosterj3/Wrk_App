@@ -562,3 +562,24 @@ Where the browser supports it — Chrome on Android and desktop — the landing 
 real **Install** button using `beforeinstallprompt`, so nobody has to be walked through a menu. The
 written steps stay because **Safari has no equivalent API**: on iPhone, Share → Add to Home Screen is
 genuinely the only route. When the button appears, the manual steps demote to "Or do it by hand".
+
+### Why the button sometimes never appears
+
+**Chrome does not fire `beforeinstallprompt` for an app that is already installed.** So "no button"
+is ambiguous on its own — it means either "already done" or "not offered yet" — and showing install
+instructions to someone who has already installed it is just noise.
+
+`navigator.getInstalledRelatedApps()` resolves it, which is why the manifest lists **itself** under
+`related_applications`. That gives four honest states rather than one guess:
+
+| Situation | What is shown |
+| --- | --- |
+| Running as the installed app | Nothing — you clearly do not need it |
+| Browser offers a prompt | A real **Install** button |
+| Detected as already installed | "Already installed", and the steps become "to install on another device" |
+| Genuinely unknown | Guidance that says so, rather than assuming you have not installed it |
+
+Two limits worth knowing. `getInstalledRelatedApps()` is Chrome-only, so on iOS the app cannot tell
+whether it is installed while you are looking at a tab, and falls back to the honest "unknown" copy.
+And the `related_applications` URL points at the deployed manifest, so detection does not work when
+serving from localhost — that is expected, not a bug.

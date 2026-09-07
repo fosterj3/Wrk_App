@@ -26,8 +26,8 @@
     document.documentElement.setAttribute('data-theme', theme);
   })();
 </script>
-<link rel="stylesheet" href="styles.css?v=18">
-<link rel="stylesheet" href="landing.css?v=18">
+<link rel="stylesheet" href="styles.css?v=19">
+<link rel="stylesheet" href="landing.css?v=19">
 </head>
 <body class="landing">
 
@@ -137,6 +137,12 @@ Treadmill 20 min</pre>
       <p class="small muted" style="margin:10px 0 0">One tap — your browser will confirm.</p>
     </div>
 
+    <div id="install-done" class="feature" hidden style="margin-bottom:18px">
+      <h3>Already installed on this device</h3>
+      <p>Open Cadence from your home screen rather than here and it runs full screen and offline.
+        Both share the same log.</p>
+    </div>
+
     <p id="install-manual-lead">Open it, then:</p>
     <div class="install-grid">
       <div class="feature">
@@ -197,13 +203,27 @@ Treadmill 20 min</pre>
   (function () {
     var deferred = null;
     var offer = document.getElementById('install-offer');
+    var done = document.getElementById('install-done');
     var btn = document.getElementById('install-btn');
     var lead = document.getElementById('install-manual-lead');
+
+    /* Chrome won't fire beforeinstallprompt for an app that's already
+       installed, so "no button" on its own is ambiguous. getInstalledRelatedApps
+       resolves it — the manifest lists itself for exactly this purpose. */
+    if (navigator.getInstalledRelatedApps) {
+      navigator.getInstalledRelatedApps().then(function (apps) {
+        if (apps.some(function (a) { return a.platform === 'webapp'; })) {
+          done.hidden = false;
+          lead.textContent = 'To install it on another device:';
+        }
+      }).catch(function () { /* unsupported or blocked */ });
+    }
 
     window.addEventListener('beforeinstallprompt', function (ev) {
       ev.preventDefault();
       deferred = ev;
       offer.hidden = false;
+      done.hidden = true;
       lead.textContent = 'Or do it by hand:';
     });
 

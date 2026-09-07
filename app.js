@@ -381,7 +381,14 @@ function render() {
   if (currentView === 'routines') renderRoutines();
   if (currentView === 'calendar') renderCalendar();
   if (currentView === 'data') renderData();
-  if (currentView === 'settings') { renderSettings(); showStorageStatus(); }
+  if (currentView === 'settings') {
+    renderSettings();
+    showStorageStatus();
+    /* Answer arrives async; re-render only if it changes what the card says. */
+    if (installedKnown === null && !isStandalone()) {
+      detectInstalled().then((was) => { if (was === true && currentView === 'settings') renderSettings(); });
+    }
+  }
 }
 
 /* ------------------------------------------------- goal, backup, plates */
@@ -1815,6 +1822,40 @@ window.addEventListener('appinstalled', () => {
   toast('Installed');
 });
 
+/* Four honest states, rather than one message that assumes you haven't installed. */
+function renderInstallCard() {
+  if (isStandalone()) return '';                 /* you're in the installed app */
+
+  if (installPrompt) {
+    return `
+      <div class="card">
+        <div class="card-title">Install Cadence</div>
+        <p class="small muted" style="margin:6px 0 12px">Adds it to your home screen so it opens
+          full screen and works without a signal.</p>
+        <button class="btn block" data-action="install-app">Install</button>
+      </div>`;
+  }
+
+  if (installedKnown === true) {
+    return `
+      <div class="card">
+        <div class="card-title">Already installed</div>
+        <p class="small muted" style="margin:6px 0 0">Cadence is on this device — open it from your
+          home screen rather than the browser and it runs full screen and offline. This tab and the
+          installed app share the same log.</p>
+      </div>`;
+  }
+
+  return `
+    <div class="card">
+      <div class="card-title">Install Cadence</div>
+      <p class="small muted" style="margin:6px 0 0">Your browser hasn't offered a one-tap install
+        here. If you already installed it, nothing to do — Chrome only offers the button once.
+        Otherwise: on iPhone use Safari's <strong>Share</strong> &rarr;
+        <strong>Add to Home Screen</strong>; on Android use Chrome's menu.</p>
+    </div>`;
+}
+
 async function runInstallPrompt() {
   if (!installPrompt) return;
   installPrompt.prompt();
@@ -1823,9 +1864,39 @@ async function runInstallPrompt() {
   render();
 }
 
-function isInstalled() {
+function isStandalone() {
   return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
     || window.navigator.standalone === true;
+}
+
+/**
+ * Whether this app is already installed — including when you're looking at it
+ * in a browser tab rather than the installed window.
+ *
+ * This matters because Chrome does not fire beforeinstallprompt for an app
+ * that's already installed, so "no button" is ambiguous: it means either
+ * "already done" or "not offered yet", and showing install instructions to
+ * someone who has already installed it is just noise.
+ *
+ * getInstalledRelatedApps() answers it, which is why the manifest lists itself
+ * under related_applications. Chrome only; elsewhere this falls back to "are we
+ * running standalone", which can't detect it from a tab.
+ */
+let installedKnown = null;
+
+async function detectInstalled() {
+  if (isStandalone()) { installedKnown = true; return true; }
+  try {
+    if (navigator.getInstalledRelatedApps) {
+      const related = await navigator.getInstalledRelatedApps();
+      installedKnown = related.some((a) => a.platform === 'webapp');
+      return installedKnown;
+    }
+  } catch (err) {
+    /* Not supported, or blocked. Fall through to "don't know". */
+  }
+  installedKnown = null;    /* genuinely unknown, so don't claim either way */
+  return null;
 }
 
 /* ------------------------------------------- keeping the screen and the data */
@@ -2014,19 +2085,7 @@ function renderSettings() {
   const st = state.settings;
 
   el.innerHTML = `
-    ${installPrompt ? `
-      <div class="card">
-        <div class="card-title">Install Cadence</div>
-        <p class="small muted" style="margin:6px 0 12px">Adds it to your home screen so it opens
-          full screen and works without a signal.</p>
-        <button class="btn block" data-action="install-app">Install</button>
-      </div>` : (isInstalled() ? '' : `
-      <div class="card">
-        <div class="card-title">Install Cadence</div>
-        <p class="small muted" style="margin:6px 0 0">On iPhone, tap <strong>Share</strong> in
-          Safari, then <strong>Add to Home Screen</strong> — Safari gives no button we can offer
-          here. On Android, use Chrome's menu if this page hasn't offered one yet.</p>
-      </div>`)}
+    ${renderInstallCard()}
 
     <div class="card">
       <div class="card-title" style="margin-bottom:12px">Preferences</div>

@@ -13,12 +13,47 @@
 
 /* ------------------------------------------------------------------ ranges */
 
+/* Short windows bucket by day — two or four weekly bars would be a bar chart
+   with almost nothing in it. Two weeks is the floor anywhere in this tab. */
+const MIN_DAYS = 14;
+
 const RANGES = {
-  '4w':  { weeks: 4,  label: '4 weeks' },
+  '2w':  { days: 14, label: '2 weeks' },
+  '4w':  { days: 28, label: '4 weeks' },
   '12w': { weeks: 12, label: '12 weeks' },
   '26w': { weeks: 26, label: '6 months' },
-  'all': { weeks: null, label: 'All time' },
+  'all': { label: 'All time' },
 };
+
+function startOfDay(d) {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+
+function dayBuckets(start, n) {
+  const buckets = [];
+  for (let i = 0; i < n; i++) {
+    const s = new Date(start);
+    s.setDate(start.getDate() + i);
+    const e = new Date(s);
+    e.setDate(s.getDate() + 1);
+    buckets.push({
+      start: s,
+      end: e,
+      label: `${s.getMonth() + 1}/${s.getDate()}`,
+      full: s.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }),
+    });
+  }
+  return { mode: 'day', buckets };
+}
+
+/* The last `n` days, ending today. */
+function lastDays(n) {
+  const start = startOfDay(new Date());
+  start.setDate(start.getDate() - (n - 1));
+  return dayBuckets(start, n);
+}
 
 function weekBuckets(start, n) {
   const buckets = [];
@@ -43,15 +78,21 @@ function makeBuckets(range, sessions) {
   const now = new Date();
 
   if (range !== 'all') {
-    const n = RANGES[range].weeks;
+    const spec = RANGES[range];
+    if (spec.days) return lastDays(spec.days);
     const start = startOfWeek(now);
-    start.setDate(start.getDate() - 7 * (n - 1));
-    return weekBuckets(start, n);
+    start.setDate(start.getDate() - 7 * (spec.weeks - 1));
+    return weekBuckets(start, spec.weeks);
   }
 
-  if (!sessions.length) return weekBuckets(startOfWeek(now), 1);
+  /* "All time" for someone who started yesterday still shows two weeks, so the
+     chart reads as a chart rather than a lone bar. */
+  if (!sessions.length) return lastDays(MIN_DAYS);
 
   const first = new Date(Math.min(...sessions.map((s) => +new Date(s.date))));
+  const spanDays = Math.round((startOfDay(now) - startOfDay(first)) / 86400000) + 1;
+  if (spanDays <= 28) return lastDays(Math.max(MIN_DAYS, spanDays));
+
   const span = Math.round((startOfWeek(now) - startOfWeek(first)) / (7 * 86400000)) + 1;
   if (span <= 26) return weekBuckets(startOfWeek(first), span);
 
@@ -192,12 +233,15 @@ function compact(n) {
   return v.toLocaleString();
 }
 
-function niceScale(max, ticks) {
+/* `integer` forces a whole-number step. Without it a 0..1 workout count picks a
+   0.5 step and the axis renders as "0, 1, 1" once the labels are rounded. */
+function niceScale(max, ticks, integer) {
   if (!(max > 0)) return { max: 1, step: 1 };
   const raw = max / (ticks || 4);
   const mag = Math.pow(10, Math.floor(Math.log10(raw)));
   const norm = raw / mag;
-  const step = (norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10) * mag;
+  let step = (norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10) * mag;
+  if (integer) step = Math.max(1, Math.round(step));
   return { max: Math.ceil(max / step) * step, step };
 }
 
@@ -223,10 +267,13 @@ function rowPath(x, y, w, h, r) {
     + ` L${x + w} ${y + h - rr} Q${x + w} ${y + h} ${x + w - rr} ${y + h} L${x} ${y + h} Z`;
 }
 
-function gridAndAxis(scale, ticks, fmt) {
+/* Ticks are derived from the scale's own step, so every label is a value the
+   step can actually land on. */
+function gridAndAxis(scale, fmt) {
+  const ticks = Math.max(1, Math.round(scale.max / scale.step));
   let out = '';
   for (let i = 0; i <= ticks; i++) {
-    const v = (scale.max / ticks) * i;
+    const v = scale.step * i;
     const y = PAD.top + PLOT_H - (v / scale.max) * PLOT_H;
     out += `<line class="viz-grid" x1="${PAD.left}" y1="${y}" x2="${W - PAD.right}" y2="${y}"/>`;
     out += `<text class="viz-tick" x="${PAD.left - 6}" y="${y + 3.5}" text-anchor="end">${fmt(v)}</text>`;
@@ -248,9 +295,10 @@ function xLabels(items, bandW, keepEvery) {
  * Partial buckets (the week still in progress) are de-emphasised rather than
  * dropped, so a half-finished week can't read as a collapse in training.
  */
-function columnChart(data, fmtValue, labelEvery) {
+function columnChart(data, opts) {
   if (!data.length) return '';
-  const scale = niceScale(Math.max(...data.map((d) => d.value)), 4);
+  const { integer, labelEvery } = opts || {};
+  const scale = niceScale(Math.max(...data.map((d) => d.value)), 4, integer);
   const bandW = PLOT_W / data.length;
   const barW = Math.min(MAX_BAR, Math.max(3, bandW - 6));
 
@@ -266,7 +314,7 @@ function columnChart(data, fmtValue, labelEvery) {
   }).join('');
 
   return `<svg class="viz" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(data.length)} bars">
-    ${gridAndAxis(scale, 4, (v) => compact(v))}
+    ${gridAndAxis(scale, (v) => compact(v))}
     ${bars}
     ${xLabels(data, bandW, labelEvery || Math.ceil(data.length / 6))}
   </svg>`;

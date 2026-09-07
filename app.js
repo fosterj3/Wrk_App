@@ -873,8 +873,12 @@ function renderData() {
 
   const volume = inRange.reduce((n, s) => n + sessionVolume(s), 0);
   const cardioMin = inRange.reduce((n, s) => n + sessionCardioMinutes(s), 0);
-  const perWeek = inRange.length / Math.max(1, buckets.length * (mode === 'month' ? 4.35 : 1));
+  const perWeek = inRange.length / Math.max(1, (+to - +from) / (7 * 86400000));
   const streak = currentStreak(all);
+
+  /* A week or month still running is de-emphasised so it can't read as a drop.
+     A day is never "partial" that way — you either trained or you didn't. */
+  const isPartial = (b) => mode !== 'day' && now >= b.start && now < b.end;
 
   /* --- per-bucket series --- */
   const freq = buckets.map((b) => {
@@ -882,9 +886,9 @@ function renderData() {
     return {
       label: b.label,
       value: list.length,
-      partial: now >= b.start && now < b.end,
+      partial: isPartial(b),
       tip: `${b.full}\n${list.length} workout${list.length === 1 ? '' : 's'}`
-        + (now >= b.start && now < b.end ? '\n(still in progress)' : ''),
+        + (isPartial(b) ? '\n(still in progress)' : ''),
     };
   });
 
@@ -893,7 +897,7 @@ function renderData() {
     return {
       label: b.label,
       value: v,
-      partial: now >= b.start && now < b.end,
+      partial: isPartial(b),
       tip: `${b.full}\n${compact(v)} ${state.settings.units} lifted`,
     };
   });
@@ -903,7 +907,7 @@ function renderData() {
     return {
       label: b.label,
       value: Math.round(v),
-      partial: now >= b.start && now < b.end,
+      partial: isPartial(b),
       tip: `${b.full}\n${Math.round(v)} min of cardio`,
     };
   });
@@ -978,7 +982,7 @@ function renderData() {
     <div class="card">
       <div class="card-title">How often you trained</div>
       <div class="card-sub">Workouts per ${mode}</div>
-      ${columnChart(freq, (v) => v)}
+      ${columnChart(freq, { integer: true })}
     </div>
 
     ${kinds.lifting + kinds.cardio + kinds.mixed ? `
@@ -1017,14 +1021,14 @@ function renderData() {
     <div class="card">
       <div class="card-title">Lifting volume</div>
       <div class="card-sub">Weight &times; reps, totalled per ${mode}</div>
-      ${columnChart(volSeries, (v) => compact(v))}
+      ${columnChart(volSeries)}
     </div>` : ''}
 
     ${hasCardio ? `
     <div class="card">
       <div class="card-title">Cardio minutes</div>
       <div class="card-sub">Totalled per ${mode}</div>
-      ${columnChart(cardioSeries, (v) => compact(v))}
+      ${columnChart(cardioSeries, { integer: true })}
     </div>` : ''}
 
     ${top.length ? `

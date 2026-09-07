@@ -141,11 +141,11 @@ light-mode user gets a black flash on every load.
 
 ## The data tab
 
-Pick a window — 4 weeks, 12 weeks, 6 months, all time — and everything below re-reads:
+Pick a window — 2 weeks, 4 weeks, 12 weeks, 6 months, all time — and everything below re-reads:
 
 - **Headline** — workouts in the window, against the same-length window before it.
 - **Tiles** — workouts per week, current streak, total volume, cardio minutes.
-- **How often you trained** — workouts per week (per month once "all time" passes ~6 months).
+- **How often you trained** — workouts per day on the short windows, per week on the longer ones, per month once "all time" passes ~6 months.
 - **What kind of training** — lifting / cardio / both, as one stacked bar.
 - **Strength progress** — a line per exercise. Defaults to estimated 1RM (Epley) so a heavy
   triple and a light set of ten stay comparable; switch to **Top set** for the raw heaviest weight.
@@ -180,3 +180,19 @@ protanopia, where 8 is the target).
 
 Note that SVG marks need `fill`, not `background` — the `.k-lifting` class that colours an HTML
 legend swatch will render an SVG path **black**.
+
+### Two weeks is the floor
+
+The shortest window is 2 weeks, and **no view ever shows less than that** — "All time" for someone
+who logged their first workout yesterday still draws a full 14 days rather than a single bar.
+
+Short windows bucket by **day**, not week: two or four weekly bars is a bar chart with nothing in
+it, whereas 14 daily bars read like a habit tracker and actually answer "which days did I train?".
+Weekly bucketing takes over at 12 weeks, monthly past ~6 months.
+
+Bucket granularity also decides what counts as "in progress". A part-finished week or month is
+greyed so it can't be misread as a drop in training; a *day* never is — you either trained or you
+didn't.
+
+Count axes force a whole-number step. Without that, a 0–1 workout count picks a 0.5 step and the
+axis renders as `0, 1, 1` once the labels round.

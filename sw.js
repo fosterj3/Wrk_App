@@ -1,5 +1,5 @@
 /* Offline cache. Bump CACHE when any shell file changes so clients pick it up. */
-const CACHE = 'wrk-v5';
+const CACHE = 'wrk-v6';
 
 const SHELL = [
   './',

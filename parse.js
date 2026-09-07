@@ -198,7 +198,9 @@ function readLine(line) {
   if (out.minutes == null) {
     eat(/\b(\d+):([0-5]\d)\b/, (m) => { out.minutes = +m[1] + +m[2] / 60; });
   }
+  /* Kept in both units: a timed hold wants raw seconds, cardio wants minutes. */
   eat(/\b(\d+)\s*(?:sec|secs|second|seconds|s)\b/i, (m) => {
+    out.seconds = (out.seconds || 0) + +m[1];
     out.minutes = (out.minutes || 0) + +m[1] / 60;
   });
   if (out.minutes != null) out.minutes = round2(out.minutes);
@@ -257,6 +259,13 @@ function setFrom(type, p) {
   if (type === 'cardio') {
     if (p.distance != null) s.distance = p.distance;
     if (p.minutes != null) s.minutes = p.minutes;
+  } else if (type === 'timed') {
+    /* "Plank 3x45s" gives seconds; "Plank 3x45" leaves 45 sitting in reps. */
+    const secs = p.seconds != null ? p.seconds
+      : p.reps != null ? p.reps
+      : p.minutes != null ? Math.round(p.minutes * 60)
+      : null;
+    if (secs != null) s.seconds = secs;
   } else {
     if (p.reps != null) s.reps = p.reps;
     if (p.weight != null) s.weight = p.weight;

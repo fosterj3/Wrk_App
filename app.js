@@ -78,7 +78,10 @@ const LIBRARY = [
   { name: 'Dumbbell Curl', type: 'lifting', group: 'Arms' },
   { name: 'Triceps Pushdown', type: 'lifting', group: 'Arms' },
   { name: 'Skull Crusher', type: 'lifting', group: 'Arms' },
-  { name: 'Plank', type: 'lifting', group: 'Core' },
+  { name: 'Plank', type: 'timed', group: 'Core' },
+  { name: 'Side Plank', type: 'timed', group: 'Core' },
+  { name: 'Dead Hang', type: 'timed', group: 'Back' },
+  { name: 'Wall Sit', type: 'timed', group: 'Legs' },
   { name: 'Hanging Leg Raise', type: 'lifting', group: 'Core' },
   { name: 'Cable Crunch', type: 'lifting', group: 'Core' },
   { name: 'Run', type: 'cardio', group: 'Cardio' },
@@ -156,34 +159,123 @@ function closeSheet() {
 
 /* -------------------------------------------------------------- rest timer */
 
-const rest = { endsAt: 0, total: 0, tick: null };
+/**
+ * One bar, two jobs.
+ *
+ *   'rest'      counts down — between sets and exercises. Ends by itself.
+ *   'stopwatch' counts up — for a plank or any held position. Ends when you
+ *               stop it, and writes the elapsed seconds into the set.
+ */
+const timer = {
+  mode: null,
+  tick: null,
+  endsAt: 0,
+  total: 0,
+  startedAt: 0,
+  target: 0,
+  entryId: null,
+  setId: null,
+  hitTarget: false,
+};
 
 function startRest(seconds) {
-  rest.total = seconds;
-  rest.endsAt = Date.now() + seconds * 1000;
-  $('#rest-bar').hidden = false;
-  clearInterval(rest.tick);
-  rest.tick = setInterval(updateRest, 200);
-  updateRest();
+  Object.assign(timer, {
+    mode: 'rest',
+    total: seconds,
+    endsAt: Date.now() + seconds * 1000,
+    entryId: null,
+    setId: null,
+  });
+  $('#timer-label').textContent = 'Rest';
+  $('#timer-plus').hidden = false;
+  $('#timer-stop').textContent = 'Skip';
+  runTimer();
 }
 
-function updateRest() {
-  const left = (rest.endsAt - Date.now()) / 1000;
-  if (left <= 0) {
-    stopRest();
-    chime();
-    if (navigator.vibrate) navigator.vibrate([220, 90, 220]);
-    toast('Rest done');
+/** @param {number} target Seconds to chime at, or 0 for a plain stopwatch. */
+function startStopwatch(entryId, setId, target) {
+  Object.assign(timer, {
+    mode: 'stopwatch',
+    startedAt: Date.now(),
+    target: target || 0,
+    entryId,
+    setId,
+    hitTarget: false,
+  });
+  const entry = state.active.entries.find((e) => e.id === entryId);
+  $('#timer-label').textContent = entry ? entry.name : 'Timing';
+  $('#timer-plus').hidden = true;
+  $('#timer-stop').textContent = 'Done';
+  runTimer();
+}
+
+function runTimer() {
+  $('#timer-bar').hidden = false;
+  $('#timer-bar').classList.toggle('counting-up', timer.mode === 'stopwatch');
+  clearInterval(timer.tick);
+  timer.tick = setInterval(updateTimer, 200);
+  updateTimer();
+}
+
+function updateTimer() {
+  if (timer.mode === 'rest') {
+    const left = (timer.endsAt - Date.now()) / 1000;
+    if (left <= 0) {
+      stopTimer();
+      alarm();
+      toast('Rest done');
+      return;
+    }
+    $('#timer-time').textContent = mmss(left);
+    $('#timer-fill').style.width = `${(left / timer.total) * 100}%`;
     return;
   }
-  $('#rest-time').textContent = mmss(left);
-  $('#rest-fill').style.width = `${(left / rest.total) * 100}%`;
+
+  const elapsed = (Date.now() - timer.startedAt) / 1000;
+  $('#timer-time').textContent = mmss(elapsed);
+
+  if (timer.target > 0) {
+    $('#timer-fill').style.width = `${Math.min(100, (elapsed / timer.target) * 100)}%`;
+    /* Sound the target but keep counting — going past it is the point. */
+    if (!timer.hitTarget && elapsed >= timer.target) {
+      timer.hitTarget = true;
+      alarm();
+      toast(`${timer.target}s reached`);
+    }
+  } else {
+    $('#timer-fill').style.width = '100%';
+  }
 }
 
-function stopRest() {
-  clearInterval(rest.tick);
-  rest.tick = null;
-  $('#rest-bar').hidden = true;
+/** Stops the timer. For a stopwatch, records the time onto its set. */
+function stopTimer() {
+  const wasStopwatch = timer.mode === 'stopwatch';
+  const elapsed = Math.round((Date.now() - timer.startedAt) / 1000);
+  const { entryId, setId } = timer;
+
+  clearInterval(timer.tick);
+  timer.tick = null;
+  timer.mode = null;
+  $('#timer-bar').hidden = true;
+
+  if (!wasStopwatch || !state.active) return;
+
+  const entry = state.active.entries.find((e) => e.id === entryId);
+  const set = entry && entry.sets.find((s) => s.id === setId);
+  if (!set) return;
+
+  set.seconds = String(elapsed);
+  set.done = true;
+  save();
+  render();
+  toast(`Logged ${elapsed}s`);
+
+  if (state.settings.restSeconds > 0) startRest(state.settings.restSeconds);
+}
+
+function alarm() {
+  chime();
+  if (navigator.vibrate) navigator.vibrate([220, 90, 220]);
 }
 
 let audioCtx;
@@ -383,9 +475,9 @@ async function shareRecap() {
 /* ------------------------------------------------------------ workout view */
 
 function newSet(type) {
-  return type === 'cardio'
-    ? { id: uid(), distance: '', minutes: '', done: false }
-    : { id: uid(), weight: '', reps: '', done: false };
+  if (type === 'cardio') return { id: uid(), distance: '', minutes: '', done: false };
+  if (type === 'timed') return { id: uid(), seconds: '', done: false };
+  return { id: uid(), weight: '', reps: '', done: false };
 }
 
 /* A routine item may carry target sets (from an import, or from "save as
@@ -403,6 +495,8 @@ function makeEntry(item) {
       if (type === 'cardio') {
         if (t.distance != null) s.distance = String(t.distance);
         if (t.minutes != null) s.minutes = String(t.minutes);
+      } else if (type === 'timed') {
+        if (t.seconds != null) s.seconds = String(t.seconds);
       } else {
         if (t.weight != null) s.weight = String(t.weight);
         if (t.reps != null) s.reps = String(t.reps);
@@ -425,6 +519,12 @@ function summarizeItem(item) {
     const per = bits.join(' / ');
     if (!per) return '';
     return sets.length > 1 ? `${sets.length} × ${per}` : per;
+  }
+
+  if (item.type === 'timed') {
+    const secs = sets[0].seconds;
+    if (secs == null) return `${sets.length} × hold`;
+    return sets.length > 1 ? `${sets.length} × ${secs}s` : `${secs}s`;
   }
 
   const first = sets[0];
@@ -568,6 +668,7 @@ function renderWorkout() {
                  data-duration value="${a.durationMin == null ? '' : a.durationMin}">
         </label>` : ''}
       <div class="row wrap">
+        <button class="ghost small" data-action="start-rest">Start rest</button>
         <button class="ghost small" data-action="rename-session">Rename</button>
         <button class="ghost small" data-action="save-as-routine">Save as routine</button>
         <div class="spacer"></div>
@@ -587,8 +688,11 @@ function renderWorkout() {
 
 function renderEntry(entry) {
   const isCardio = entry.type === 'cardio';
+  const isTimed = entry.type === 'timed';
   const unit = state.settings.units === 'kg' ? 'Kg' : 'Lb';
-  const cols = isCardio ? ['#', 'Distance', 'Min', '', ''] : ['#', unit, 'Reps', '', ''];
+  const cols = isTimed ? ['#', 'Seconds', '', '', '']
+    : isCardio ? ['#', 'Distance', 'Min', '', '']
+    : ['#', unit, 'Reps', '', ''];
 
   /* What you did last time is the reason to open the app mid-session, so it
      sits directly above the inputs rather than behind a tap. */
@@ -596,11 +700,11 @@ function renderEntry(entry) {
   const isPr = (state.active.prs || []).includes(entry.name);
 
   return `
-  <div class="card ex ${isCardio ? 'cardio' : 'lifting'}" data-entry="${entry.id}">
+  <div class="card ex ${entry.type}" data-entry="${entry.id}">
     <div class="ex-head">
       <span class="ex-name">${esc(entry.name)}</span>
       ${isPr ? '<span class="pill pr">PR</span>' : ''}
-      <span class="pill ${isCardio ? 'cardio' : 'lifting'}">${isCardio ? 'cardio' : 'lifting'}</span>
+      <span class="pill ${entry.type}">${entry.type}</span>
       <div class="spacer"></div>
       <button class="icon-btn" data-action="remove-entry" data-id="${entry.id}" aria-label="Remove exercise">&times;</button>
     </div>
@@ -614,23 +718,36 @@ function renderEntry(entry) {
 
     <div class="set-grid">
       <div class="set-head">${cols.map((c) => `<div>${c}</div>`).join('')}</div>
-      ${entry.sets.map((s, i) => `
+      ${entry.sets.map((s, i) => {
+        const running = timer.mode === 'stopwatch' && timer.setId === s.id;
+        const cells = isTimed
+          ? `<input class="cell" type="number" inputmode="numeric" step="any" placeholder="—"
+                    data-field="seconds" value="${esc(s.seconds)}">
+             <button class="check timer-btn ${running ? 'on' : ''}" data-action="time-set"
+                     data-id="${entry.id}" aria-label="${running ? 'Stop timing' : 'Start timing this set'}"
+                     >${running ? '&#9632;' : '&#9654;'}</button>`
+          : `<input class="cell" type="number" inputmode="decimal" step="any" placeholder="—"
+                    data-field="${isCardio ? 'distance' : 'weight'}"
+                    value="${esc(isCardio ? s.distance : s.weight)}">
+             <input class="cell" type="number" inputmode="numeric" step="any" placeholder="—"
+                    data-field="${isCardio ? 'minutes' : 'reps'}"
+                    value="${esc(isCardio ? s.minutes : s.reps)}">`;
+
+        return `
         <div class="set-row ${s.done ? 'done' : ''}" data-set="${s.id}">
           <div class="set-n">${i + 1}</div>
-          <input class="cell" type="number" inputmode="decimal" step="any" placeholder="—"
-                 data-field="${isCardio ? 'distance' : 'weight'}"
-                 value="${esc(isCardio ? s.distance : s.weight)}">
-          <input class="cell" type="number" inputmode="numeric" step="any" placeholder="—"
-                 data-field="${isCardio ? 'minutes' : 'reps'}"
-                 value="${esc(isCardio ? s.minutes : s.reps)}">
+          ${cells}
           <button class="check ${s.done ? 'on' : ''}" data-action="toggle-set" aria-label="Mark set done">&#10003;</button>
           <button class="icon-btn" data-action="remove-set" aria-label="Remove set">&minus;</button>
-        </div>`).join('')}
+        </div>`;
+      }).join('')}
     </div>
 
     <div class="row" style="margin-top:10px">
       <button class="ghost small" data-action="add-set" data-id="${entry.id}">+ Set</button>
-      ${isCardio ? '' : `<button class="ghost small" data-action="plates" data-id="${entry.id}">Plates</button>`}
+      ${entry.type === 'lifting'
+        ? `<button class="ghost small" data-action="plates" data-id="${entry.id}">Plates</button>`
+        : ''}
     </div>
   </div>`;
 }
@@ -699,7 +816,7 @@ function finishSession() {
   if (!kept.length) {
     if (!confirm('No sets were marked done. Discard this workout?')) return;
     state.active = null;
-    stopRest();
+    stopTimer();
     save();
     render();
     return;
@@ -721,7 +838,7 @@ function finishSession() {
 
   const landedOn = a.startedAt;
   state.active = null;
-  stopRest();
+  stopTimer();
   save();
   toast(a.backdated ? 'Workout logged' : 'Workout saved');
   calCursor = new Date(landedOn);
@@ -934,11 +1051,15 @@ function sessionsByDay() {
   return map;
 }
 
-/* What colour a day gets: lifting, cardio, or both. */
+/* What colour a day gets: lifting, cardio, or both.
+   Timed holds count as strength work — a bench session with a plank in it is
+   still a lifting day, not a "both" day. */
 function sessionKind(s) {
   const types = new Set((s.entries || []).map((e) => e.type));
-  if (types.size > 1) return 'mixed';
-  return types.has('cardio') ? 'cardio' : 'lifting';
+  const hasCardio = types.has('cardio');
+  const hasStrength = types.has('lifting') || types.has('timed');
+  if (hasCardio && hasStrength) return 'mixed';
+  return hasCardio ? 'cardio' : 'lifting';
 }
 
 /* The run of days currently on screen, plus how to label it. Shared by the
@@ -1136,9 +1257,7 @@ function renderDayDetail(key, sessions) {
           ${s.entries.map((e) => `
             <div class="small" style="margin-top:6px">
               <span style="font-weight:600">${esc(e.name)}</span>
-              <span class="muted">${e.sets.map((set) => e.type === 'cardio'
-                ? `${esc(set.distance) || '—'}/${esc(set.minutes) || '—'}min`
-                : `${esc(set.weight) || '—'}${state.settings.units}&times;${esc(set.reps) || '—'}`).join(', ')}</span>
+              <span class="muted">${esc(e.sets.map((set) => formatSet(e.type, set, state.settings.units)).join(', '))}</span>
             </div>`).join('')}
         </div>`;
       }).join('')}
@@ -1542,7 +1661,7 @@ document.addEventListener('click', (ev) => {
     case 'discard':
       if (!confirm('Discard this workout? It will not be saved.')) return;
       state.active = null;
-      stopRest();
+      stopTimer();
       save();
       render();
       break;
@@ -1567,11 +1686,17 @@ document.addEventListener('click', (ev) => {
         items: state.active.entries.map((e) => ({
           name: e.name,
           type: e.type,
-          sets: e.sets.map((s) => (e.type === 'cardio'
-            ? { ...(s.distance !== '' && { distance: Number(s.distance) }),
-                ...(s.minutes !== '' && { minutes: Number(s.minutes) }) }
-            : { ...(s.weight !== '' && { weight: Number(s.weight) }),
-                ...(s.reps !== '' && { reps: Number(s.reps) }) })),
+          sets: e.sets.map((s) => {
+            if (e.type === 'cardio') {
+              return { ...(s.distance !== '' && { distance: Number(s.distance) }),
+                       ...(s.minutes !== '' && { minutes: Number(s.minutes) }) };
+            }
+            if (e.type === 'timed') {
+              return { ...(s.seconds !== '' && { seconds: Number(s.seconds) }) };
+            }
+            return { ...(s.weight !== '' && { weight: Number(s.weight) }),
+                     ...(s.reps !== '' && { reps: Number(s.reps) }) };
+          }),
         })),
       });
       save();
@@ -1738,7 +1863,27 @@ document.addEventListener('click', (ev) => {
     case 'add-custom': {
       const name = ($('#ex-search') ? $('#ex-search').value : '').trim();
       if (!name) { toast('Type a name first'); return; }
-      const type = confirm('Is this a cardio exercise?\n\nOK = cardio, Cancel = lifting') ? 'cardio' : 'lifting';
+      openSheet('What kind of exercise?', `
+        <p class="small muted" style="margin-top:0">How should <strong>${esc(name)}</strong> be recorded?</p>
+        ${[
+          ['lifting', 'Weight and reps', 'Bench press, curls, leg press'],
+          ['timed', 'A held time', 'Planks, dead hangs, wall sits'],
+          ['cardio', 'Distance and duration', 'Runs, rides, rowing'],
+        ].map(([type, title, eg]) => `
+          <button class="pick" data-action="custom-type" data-type="${type}"
+                  data-name="${esc(name)}" data-pick="${esc(btn.dataset.pick || '')}"
+                  data-ctx="${esc(btn.dataset.ctx || '')}">
+            <div class="grow">
+              <div class="nm">${title}</div>
+              <div class="card-sub">${eg}</div>
+            </div>
+            <span class="pill ${type}">${type}</span>
+          </button>`).join('')}`);
+      break;
+    }
+
+    case 'custom-type': {
+      const { name, type } = btn.dataset;
       if (btn.dataset.pick === 'pick-into-routine') {
         const r = state.routines.find((x) => x.id === btn.dataset.ctx);
         r.items.push({ name, type });
@@ -1817,6 +1962,24 @@ document.addEventListener('click', (ev) => {
       render();
       break;
 
+    /* ---- timers ---- */
+    case 'time-set': {
+      /* Tapping the same set again stops it and records the time. */
+      if (timer.mode === 'stopwatch' && timer.setId === row.dataset.set) {
+        stopTimer();
+        return;
+      }
+      const { set } = findSet(card.dataset.entry, row.dataset.set);
+      if (!set) return;
+      startStopwatch(card.dataset.entry, row.dataset.set, Number(set.seconds) || 0);
+      render();
+      break;
+    }
+
+    case 'start-rest':
+      startRest(Number(state.settings.restSeconds) || 90);
+      break;
+
     /* ---- last time, plates, sharing, backup ---- */
     case 'repeat-last': {
       const entry = state.active.entries.find((e) => e.id === id);
@@ -1831,6 +1994,8 @@ document.addEventListener('click', (ev) => {
         if (entry.type === 'cardio') {
           s.distance = src.distance || '';
           s.minutes = src.minutes || '';
+        } else if (entry.type === 'timed') {
+          s.seconds = src.seconds || '';
         } else {
           s.weight = src.weight || '';
           s.reps = src.reps || '';
@@ -1979,11 +2144,12 @@ document.addEventListener('pointerup', (ev) => {
 window.addEventListener('scroll', hideTip, { passive: true });
 
 $$('.tab').forEach((tab) => tab.addEventListener('click', () => { hideTip(); go(tab.dataset.view); }));
-$('#rest-skip').addEventListener('click', stopRest);
-$('#rest-add').addEventListener('click', () => {
-  rest.endsAt += 30000;
-  rest.total += 30;
-  updateRest();
+$('#timer-stop').addEventListener('click', stopTimer);
+$('#timer-plus').addEventListener('click', () => {
+  if (timer.mode !== 'rest') return;
+  timer.endsAt += 30000;
+  timer.total += 30;
+  updateTimer();
 });
 
 /* Keep the "elapsed" line honest while a live workout is open. A backdated log

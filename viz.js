@@ -127,7 +127,7 @@ function sessionsIn(sessions, from, to) {
 function sessionVolume(s) {
   let total = 0;
   s.entries.forEach((e) => {
-    if (e.type === 'cardio') return;
+    if (e.type !== 'lifting') return;   /* timed holds have no weight to count */
     e.sets.forEach((set) => {
       const w = Number(set.weight);
       const r = Number(set.reps);
@@ -159,7 +159,7 @@ function exerciseSeries(sessions, name, metric) {
   [...sessions].reverse().forEach((s) => {
     let best = 0;
     s.entries.forEach((e) => {
-      if (e.type === 'cardio' || e.name !== name) return;
+      if (e.type !== 'lifting' || e.name !== name) return;
       e.sets.forEach((set) => {
         const w = Number(set.weight);
         const r = Number(set.reps);
@@ -185,7 +185,7 @@ function trackableExercises(sessions) {
   sessions.forEach((s) => {
     const seen = new Set();
     s.entries.forEach((e) => {
-      if (e.type === 'cardio' || seen.has(e.name)) return;
+      if (e.type !== 'lifting' || seen.has(e.name)) return;
       const hasWeight = e.sets.some((set) => set.weight !== '' && !isNaN(Number(set.weight)));
       if (!hasWeight) return;
       seen.add(e.name);
@@ -456,17 +456,23 @@ function lastPerformance(sessions, name) {
   return null;
 }
 
+/* The one place a set turns into text. Used by the calendar, the routine list,
+   and the "last time" line, so they can't drift apart. */
+function formatSet(type, set, units) {
+  if (type === 'cardio') return `${set.distance || '—'}/${set.minutes || '—'}min`;
+  if (type === 'timed') return `${set.seconds || '—'}s`;
+  return `${set.weight || '—'}${units}×${set.reps || '—'}`;
+}
+
 function summarizeSets(perf, units) {
-  return perf.sets.map((s) => (perf.type === 'cardio'
-    ? `${s.distance || '—'}/${s.minutes || '—'}min`
-    : `${s.weight || '—'}${units}×${s.reps || '—'}`)).join(', ');
+  return perf.sets.map((s) => formatSet(perf.type, s, units)).join(', ');
 }
 
 /* Best estimated 1RM ever recorded for an exercise. */
 function bestE1rm(sessions, name) {
   let best = 0;
   sessions.forEach((s) => s.entries.forEach((e) => {
-    if (e.type === 'cardio' || e.name !== name) return;
+    if (e.type !== 'lifting' || e.name !== name) return;
     e.sets.forEach((set) => {
       const w = Number(set.weight);
       const r = Number(set.reps);

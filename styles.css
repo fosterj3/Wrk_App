@@ -212,21 +212,21 @@ input.text:focus,select.text:focus{outline:2px solid var(--accent);outline-offse
 .tab.is-active{color:var(--accent-fg)}
 
 /* ---------- rest bar ---------- */
-.rest-bar{
+.timer-bar{
   position:fixed;left:0;right:0;z-index:29;
   bottom:calc(var(--tabbar-h) + env(safe-area-inset-bottom));
   background:var(--surface-2);border-top:1px solid var(--line);
 }
-.rest-progress{height:3px;background:var(--line)}
-#rest-fill{height:100%;width:100%;background:var(--accent);transition:width .25s linear}
-.rest-row{display:flex;align-items:center;gap:10px;padding:10px 16px}
-.rest-label{color:var(--muted);font-size:13px;text-transform:uppercase;letter-spacing:.06em}
-.rest-time{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums;margin-right:auto}
+.timer-progress{height:3px;background:var(--line)}
+#timer-fill{height:100%;width:100%;background:var(--accent);transition:width .25s linear}
+.timer-row{display:flex;align-items:center;gap:10px;padding:10px 16px}
+.timer-label{color:var(--muted);font-size:13px;text-transform:uppercase;letter-spacing:.06em}
+.timer-time{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums;margin-right:auto}
 
 /* ---------- sheet ---------- */
 .sheet{position:fixed;inset:0;z-index:70;display:flex;align-items:flex-end}
 body.sheet-open .tabbar,
-body.sheet-open .rest-bar{visibility:hidden}
+body.sheet-open .timer-bar{visibility:hidden}
 .sheet-backdrop{position:absolute;inset:0;background:var(--scrim)}
 .sheet-panel{
   position:relative;width:100%;max-height:86vh;display:flex;flex-direction:column;
@@ -258,7 +258,7 @@ body.sheet-open .rest-bar{visibility:hidden}
 @media (min-width:640px){
   #main,.topbar{max-width:640px;margin-inline:auto}
   .tabbar{max-width:640px;margin-inline:auto;border-radius:16px 16px 0 0}
-  .rest-bar{max-width:640px;margin-inline:auto}
+  .timer-bar{max-width:640px;margin-inline:auto}
 }
 
 /* ---------- paste-in from notes ---------- */
@@ -484,3 +484,14 @@ select.text.slim{width:auto;flex:1;min-width:150px;padding:8px 10px;font-size:13
   font-size:14px;color:var(--text);
 }
 .backdate-bar strong{color:var(--accent-fg)}
+
+/* ---------- timed exercises + timer ---------- */
+.timed .set-head,.timed .set-row{grid-template-columns:34px 1fr 44px 44px 40px}
+.pill.timed{color:var(--good);border-color:var(--done-line)}
+.timer-btn{font-size:14px}
+.timer-btn.on{background:var(--danger);border-color:var(--danger);color:#fff}
+.timer-bar.counting-up #timer-fill{background:var(--good)}
+.timer-label{
+  max-width:38%;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;
+  text-transform:none;letter-spacing:0;
+}

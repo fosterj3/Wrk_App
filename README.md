@@ -15,7 +15,7 @@ Log lifting and cardio, save reusable routines, and time your rest between sets.
 - **Weekly goal** — set a target and a progress ring tells you where you are and whether the week is slipping away.
 - **Plate calculator** — what to load per side for any target weight.
 - **Share your week** — a square image of your week for the group chat.
-- **Rest timer** — starts automatically when you tick a set, with a chime and a vibration when it's up. Configurable, or off.
+- **Timers** — a rest countdown that starts on its own when you tick a set (or on demand via Start rest), and a stopwatch for held exercises like planks that writes the time straight into the set.
 - **Calendar** — month and week views showing which days you trained, colour-coded by what you did. Tap any day to see that day's workouts, log one you forgot to record, or delete one.
 - **Data** — charts for how often you train, what kind, your strength progression per exercise, weekly volume and cardio, and your most-trained lifts.
 - **Dark and light themes** — royal purple on black, or purple on warm off-white. Follows your phone's setting on first run; switch it any time in Settings.
@@ -252,3 +252,32 @@ they only make sense live:
 Future dates can't be logged; the day panel says so instead of offering the button. Saving a
 backdated workout re-sorts the history so it lands in the right place, and jumps the calendar to the
 day you filled in.
+
+## Timers and timed exercises
+
+One bar above the tab bar does two jobs:
+
+- **Rest countdown.** Starts automatically when you tick a set off, or on demand with **Start rest**
+  on the session card — useful between exercises, not just between sets. `+30s` extends it, `Skip`
+  ends it. Manual start works even with the automatic timer set to 0.
+- **Stopwatch.** For held exercises. Press ▶ on the set, hold the plank, press ■ — the elapsed
+  seconds are written into the set, it's marked done, and the rest timer starts.
+
+If the set already has a number in it, that's treated as a target: the app chimes when you reach it
+but **keeps counting**, and records what you actually held, not what you aimed for.
+
+### The timed exercise type
+
+Holds don't fit weight×reps, so there's a third exercise type alongside lifting and cardio, with a
+single `seconds` field per set. `Plank`, `Side Plank`, `Dead Hang` and `Wall Sit` ship as timed, and
+a custom exercise now asks which of the three kinds it is rather than just "is this cardio?".
+
+Two consequences worth knowing:
+
+- **A timed hold counts as strength work, not as "both".** A bench session with a plank in it is
+  still a lifting day on the calendar — otherwise adding core work would silently recolour the day.
+- **Timed sets are excluded from volume and strength-progress charts**, since they have no weight.
+  They still count toward set totals and "most-trained exercises".
+
+The paste importer reads `Plank 3x45s`, `Side plank 2 x 30 sec` and `Wall sit 60s`. A bare
+`Plank 3x60` is read as 60 seconds rather than 60 reps, because the exercise is known to be timed.

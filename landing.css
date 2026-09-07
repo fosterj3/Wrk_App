@@ -15,7 +15,10 @@ body.landing{
 .landing section{margin:76px 0}
 .landing h2{font-size:26px;margin-bottom:14px}
 .landing p{color:var(--muted);margin:0 0 14px}
-.landing a{color:var(--accent-fg)}
+/* :not(.btn) matters. Without it this rule (specificity 0,1,1) outranks
+   .btn's own colour (0,1,0) and paints purple link text onto the purple
+   button — 1.26:1 in light mode. Buttons keep --accent-ink. */
+.landing a:not(.btn){color:var(--accent-fg)}
 
 /* ---------- hero ---------- */
 .hero{
@@ -108,3 +111,8 @@ body.landing{
   .demo-arrow{transform:rotate(90deg);text-align:center}
   .landing section{margin:56px 0}
 }
+
+.steps{margin:0;padding-left:20px;color:var(--muted);font-size:14px}
+.steps li{margin:0 0 6px}
+.steps li:last-child{margin-bottom:0}
+.steps strong{color:var(--text)}

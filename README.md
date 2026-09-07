@@ -30,10 +30,14 @@ installed copy, so only the product name changed.
 
 Open the live link, then:
 
-- **Android (Chrome):** menu ⋮ → *Add to Home screen*
-- **iPhone (Safari):** Share → *Add to Home Screen*
+**Android (Chrome)** — three-dot menu → **Install and add shortcut** (older Chrome: *Add to Home
+screen*) → confirm **Install**.
 
-It then opens full-screen like a normal app.
+**iPhone (Safari)** — **Share** (behind the three-dot button beside the address bar on newer iOS)
+→ scroll to **Add to Home Screen** → leave **Open as Web App** on → **Add**. It has to be Safari,
+and with that toggle off you get a plain bookmark rather than an app: no full screen, no offline.
+
+Installed, it opens full-screen like a normal app.
 
 ## Where your data lives
 

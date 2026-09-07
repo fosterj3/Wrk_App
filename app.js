@@ -1,0 +1,863 @@
+/* Wrk — a local-first workout tracker.
+   All data lives in localStorage on this device. No accounts, no server. */
+
+'use strict';
+
+/* ------------------------------------------------------------------ store */
+
+const STORE_KEY = 'wrk.v1';
+
+const DEFAULTS = {
+  version: 1,
+  settings: { units: 'lb', restSeconds: 90 },
+  routines: [],
+  sessions: [],
+  active: null,
+};
+
+let state = load();
+
+function load() {
+  try {
+    const raw = localStorage.getItem(STORE_KEY);
+    if (!raw) return clone(DEFAULTS);
+    const parsed = JSON.parse(raw);
+    return {
+      ...clone(DEFAULTS),
+      ...parsed,
+      settings: { ...DEFAULTS.settings, ...(parsed.settings || {}) },
+    };
+  } catch (err) {
+    console.error('Could not read saved data, starting fresh.', err);
+    return clone(DEFAULTS);
+  }
+}
+
+function save() {
+  try {
+    localStorage.setItem(STORE_KEY, JSON.stringify(state));
+  } catch (err) {
+    console.error(err);
+    toast('Could not save — storage may be full.');
+  }
+}
+
+function clone(v) { return JSON.parse(JSON.stringify(v)); }
+function uid() { return Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4); }
+
+/* -------------------------------------------------------- exercise library */
+
+const LIBRARY = [
+  { name: 'Barbell Back Squat', type: 'lifting', group: 'Legs' },
+  { name: 'Front Squat', type: 'lifting', group: 'Legs' },
+  { name: 'Romanian Deadlift', type: 'lifting', group: 'Legs' },
+  { name: 'Leg Press', type: 'lifting', group: 'Legs' },
+  { name: 'Walking Lunge', type: 'lifting', group: 'Legs' },
+  { name: 'Leg Curl', type: 'lifting', group: 'Legs' },
+  { name: 'Calf Raise', type: 'lifting', group: 'Legs' },
+  { name: 'Barbell Bench Press', type: 'lifting', group: 'Chest' },
+  { name: 'Incline Dumbbell Press', type: 'lifting', group: 'Chest' },
+  { name: 'Push-Up', type: 'lifting', group: 'Chest' },
+  { name: 'Cable Fly', type: 'lifting', group: 'Chest' },
+  { name: 'Overhead Press', type: 'lifting', group: 'Shoulders' },
+  { name: 'Dumbbell Lateral Raise', type: 'lifting', group: 'Shoulders' },
+  { name: 'Face Pull', type: 'lifting', group: 'Shoulders' },
+  { name: 'Deadlift', type: 'lifting', group: 'Back' },
+  { name: 'Pull-Up', type: 'lifting', group: 'Back' },
+  { name: 'Lat Pulldown', type: 'lifting', group: 'Back' },
+  { name: 'Barbell Row', type: 'lifting', group: 'Back' },
+  { name: 'Seated Cable Row', type: 'lifting', group: 'Back' },
+  { name: 'Barbell Curl', type: 'lifting', group: 'Arms' },
+  { name: 'Dumbbell Curl', type: 'lifting', group: 'Arms' },
+  { name: 'Triceps Pushdown', type: 'lifting', group: 'Arms' },
+  { name: 'Skull Crusher', type: 'lifting', group: 'Arms' },
+  { name: 'Plank', type: 'lifting', group: 'Core' },
+  { name: 'Hanging Leg Raise', type: 'lifting', group: 'Core' },
+  { name: 'Cable Crunch', type: 'lifting', group: 'Core' },
+  { name: 'Run', type: 'cardio', group: 'Cardio' },
+  { name: 'Treadmill', type: 'cardio', group: 'Cardio' },
+  { name: 'Walk', type: 'cardio', group: 'Cardio' },
+  { name: 'Cycling', type: 'cardio', group: 'Cardio' },
+  { name: 'Rowing Machine', type: 'cardio', group: 'Cardio' },
+  { name: 'Elliptical', type: 'cardio', group: 'Cardio' },
+  { name: 'Stair Climber', type: 'cardio', group: 'Cardio' },
+  { name: 'Swimming', type: 'cardio', group: 'Cardio' },
+  { name: 'Jump Rope', type: 'cardio', group: 'Cardio' },
+];
+
+/* ------------------------------------------------------------- small utils */
+
+const $ = (sel, root = document) => root.querySelector(sel);
+const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+}
+
+function mmss(totalSeconds) {
+  const s = Math.max(0, Math.round(totalSeconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+function fmtDuration(ms) {
+  const min = Math.round(ms / 60000);
+  if (min < 60) return `${min} min`;
+  return `${Math.floor(min / 60)}h ${min % 60}m`;
+}
+
+function fmtDate(iso) {
+  const d = new Date(iso);
+  const sameDay = (a, b) => a.toDateString() === b.toDateString();
+  if (sameDay(d, new Date())) return 'Today';
+  if (sameDay(d, new Date(Date.now() - 86400000))) return 'Yesterday';
+  return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+let toastTimer;
+function toast(msg) {
+  const el = $('#toast');
+  el.textContent = msg;
+  el.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.hidden = true; }, 2200);
+}
+
+/* ------------------------------------------------------------------ sheets */
+
+function openSheet(title, html) {
+  $('#sheet-title').textContent = title;
+  $('#sheet-body').innerHTML = html;
+  $('#sheet').hidden = false;
+}
+
+function closeSheet() {
+  $('#sheet').hidden = true;
+  $('#sheet-body').innerHTML = '';
+}
+
+/* -------------------------------------------------------------- rest timer */
+
+const rest = { endsAt: 0, total: 0, tick: null };
+
+function startRest(seconds) {
+  rest.total = seconds;
+  rest.endsAt = Date.now() + seconds * 1000;
+  $('#rest-bar').hidden = false;
+  clearInterval(rest.tick);
+  rest.tick = setInterval(updateRest, 200);
+  updateRest();
+}
+
+function updateRest() {
+  const left = (rest.endsAt - Date.now()) / 1000;
+  if (left <= 0) {
+    stopRest();
+    chime();
+    if (navigator.vibrate) navigator.vibrate([220, 90, 220]);
+    toast('Rest done');
+    return;
+  }
+  $('#rest-time').textContent = mmss(left);
+  $('#rest-fill').style.width = `${(left / rest.total) * 100}%`;
+}
+
+function stopRest() {
+  clearInterval(rest.tick);
+  rest.tick = null;
+  $('#rest-bar').hidden = true;
+}
+
+let audioCtx;
+function chime() {
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    [0, 0.18].forEach((offset, i) => {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.frequency.value = i === 0 ? 660 : 880;
+      const t = audioCtx.currentTime + offset;
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(0.28, t + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+      osc.start(t);
+      osc.stop(t + 0.18);
+    });
+  } catch (err) {
+    /* Audio is a nicety — never let it break the timer. */
+  }
+}
+
+/* ------------------------------------------------------------------ router */
+
+let currentView = 'workout';
+const TITLES = { workout: 'Workout', routines: 'Routines', history: 'History', settings: 'Settings' };
+
+function go(view) {
+  currentView = view;
+  $$('.tab').forEach((t) => t.classList.toggle('is-active', t.dataset.view === view));
+  $$('.view').forEach((v) => { v.hidden = v.id !== `view-${view}`; });
+  $('#topbar-title').textContent = TITLES[view];
+  render();
+}
+
+function render() {
+  if (currentView === 'workout') renderWorkout();
+  if (currentView === 'routines') renderRoutines();
+  if (currentView === 'history') renderHistory();
+  if (currentView === 'settings') renderSettings();
+}
+
+/* ------------------------------------------------------------ workout view */
+
+function newSet(type) {
+  return type === 'cardio'
+    ? { id: uid(), distance: '', minutes: '', done: false }
+    : { id: uid(), weight: '', reps: '', done: false };
+}
+
+function makeEntry(ex) {
+  return { id: uid(), name: ex.name, type: ex.type, sets: [newSet(ex.type)] };
+}
+
+function startSession(routine) {
+  state.active = {
+    id: uid(),
+    startedAt: new Date().toISOString(),
+    name: routine ? routine.name : 'Quick workout',
+    routineId: routine ? routine.id : null,
+    entries: routine ? routine.items.map(makeEntry) : [],
+  };
+  save();
+  go('workout');
+}
+
+function renderWorkout() {
+  const el = $('#view-workout');
+  const a = state.active;
+  const action = $('#btn-header-action');
+
+  if (!a) {
+    action.hidden = true;
+    el.innerHTML = `
+      <div class="empty">
+        <h3>No workout in progress</h3>
+        <p>Start from scratch, or load one of your routines.</p>
+        <button class="btn block" data-action="start-empty">Start empty workout</button>
+      </div>
+      ${state.routines.length ? `
+        <h2 class="small muted" style="margin:22px 0 10px">START FROM A ROUTINE</h2>
+        ${state.routines.map((r) => `
+          <button class="pick" data-action="start-routine" data-id="${r.id}">
+            <div class="grow">
+              <div class="nm">${esc(r.name)}</div>
+              <div class="card-sub">${r.items.length} exercise${r.items.length === 1 ? '' : 's'}</div>
+            </div>
+            <span class="muted">&rsaquo;</span>
+          </button>`).join('')}
+      ` : ''}`;
+    return;
+  }
+
+  action.hidden = false;
+  action.textContent = 'Finish';
+  action.dataset.action = 'finish';
+
+  const elapsed = fmtDuration(Date.now() - new Date(a.startedAt).getTime());
+  const doneSets = a.entries.reduce((n, e) => n + e.sets.filter((s) => s.done).length, 0);
+
+  el.innerHTML = `
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">${esc(a.name)}</div>
+          <div class="card-sub" id="session-summary">${elapsed} elapsed &middot; ${doneSets} set${doneSets === 1 ? '' : 's'} done</div>
+        </div>
+      </div>
+      <div class="row wrap">
+        <button class="ghost small" data-action="rename-session">Rename</button>
+        <button class="ghost small" data-action="save-as-routine">Save as routine</button>
+        <div class="spacer"></div>
+        <button class="ghost small" data-action="discard" style="color:var(--danger)">Discard</button>
+      </div>
+    </div>
+
+    ${a.entries.map(renderEntry).join('')}
+
+    <div style="margin-top:14px">
+      <button class="btn block secondary" data-action="add-exercise">+ Add exercise</button>
+    </div>
+    ${a.entries.length
+      ? '<div style="margin-top:10px"><button class="btn block" data-action="finish">Finish workout</button></div>'
+      : ''}`;
+}
+
+function renderEntry(entry) {
+  const isCardio = entry.type === 'cardio';
+  const unit = state.settings.units === 'kg' ? 'Kg' : 'Lb';
+  const cols = isCardio ? ['#', 'Distance', 'Min', '', ''] : ['#', unit, 'Reps', '', ''];
+
+  return `
+  <div class="card ex ${isCardio ? 'cardio' : 'lifting'}" data-entry="${entry.id}">
+    <div class="ex-head">
+      <span class="ex-name">${esc(entry.name)}</span>
+      <span class="pill ${isCardio ? 'cardio' : 'lifting'}">${isCardio ? 'cardio' : 'lifting'}</span>
+      <div class="spacer"></div>
+      <button class="icon-btn" data-action="remove-entry" data-id="${entry.id}" aria-label="Remove exercise">&times;</button>
+    </div>
+
+    <div class="set-grid">
+      <div class="set-head">${cols.map((c) => `<div>${c}</div>`).join('')}</div>
+      ${entry.sets.map((s, i) => `
+        <div class="set-row ${s.done ? 'done' : ''}" data-set="${s.id}">
+          <div class="set-n">${i + 1}</div>
+          <input class="cell" type="number" inputmode="decimal" step="any" placeholder="—"
+                 data-field="${isCardio ? 'distance' : 'weight'}"
+                 value="${esc(isCardio ? s.distance : s.weight)}">
+          <input class="cell" type="number" inputmode="numeric" step="any" placeholder="—"
+                 data-field="${isCardio ? 'minutes' : 'reps'}"
+                 value="${esc(isCardio ? s.minutes : s.reps)}">
+          <button class="check ${s.done ? 'on' : ''}" data-action="toggle-set" aria-label="Mark set done">&#10003;</button>
+          <button class="icon-btn" data-action="remove-set" aria-label="Remove set">&minus;</button>
+        </div>`).join('')}
+    </div>
+
+    <div class="row" style="margin-top:10px">
+      <button class="ghost small" data-action="add-set" data-id="${entry.id}">+ Set</button>
+    </div>
+  </div>`;
+}
+
+/* Refresh just the summary line — used after an in-place set toggle. */
+function updateSummary() {
+  const el = $('#session-summary');
+  if (!el || !state.active) return;
+  const elapsed = fmtDuration(Date.now() - new Date(state.active.startedAt).getTime());
+  const done = state.active.entries.reduce((n, e) => n + e.sets.filter((s) => s.done).length, 0);
+  el.innerHTML = `${elapsed} elapsed &middot; ${done} set${done === 1 ? '' : 's'} done`;
+}
+
+function findSet(entryId, setId) {
+  const entry = state.active && state.active.entries.find((e) => e.id === entryId);
+  return { entry, set: entry && entry.sets.find((s) => s.id === setId) };
+}
+
+function finishSession() {
+  const a = state.active;
+  if (!a) return;
+
+  const kept = a.entries
+    .map((e) => ({ ...e, sets: e.sets.filter((s) => s.done) }))
+    .filter((e) => e.sets.length);
+
+  if (!kept.length) {
+    if (!confirm('No sets were marked done. Discard this workout?')) return;
+    state.active = null;
+    stopRest();
+    save();
+    render();
+    return;
+  }
+
+  state.sessions.unshift({
+    id: a.id,
+    name: a.name,
+    date: a.startedAt,
+    durationMs: Date.now() - new Date(a.startedAt).getTime(),
+    entries: kept,
+  });
+  state.active = null;
+  stopRest();
+  save();
+  toast('Workout saved');
+  go('history');
+}
+
+/* ----------------------------------------------------------- routines view */
+
+function renderRoutines() {
+  const el = $('#view-routines');
+  const action = $('#btn-header-action');
+  action.hidden = false;
+  action.textContent = 'New';
+  action.dataset.action = 'new-routine';
+
+  if (!state.routines.length) {
+    el.innerHTML = `
+      <div class="empty">
+        <h3>No routines yet</h3>
+        <p>A routine is a saved list of exercises — load it instead of retyping the same workout every time.</p>
+        <button class="btn block" data-action="new-routine">Create a routine</button>
+      </div>`;
+    return;
+  }
+
+  el.innerHTML = state.routines.map((r) => `
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">${esc(r.name)}</div>
+          <div class="card-sub">${r.items.map((i) => esc(i.name)).join(' &middot; ') || 'No exercises yet'}</div>
+        </div>
+      </div>
+      <div class="row">
+        <button class="btn secondary" data-action="start-routine" data-id="${r.id}">Start</button>
+        <button class="ghost" data-action="edit-routine" data-id="${r.id}">Edit</button>
+        <div class="spacer"></div>
+        <button class="icon-btn" data-action="delete-routine" data-id="${r.id}" aria-label="Delete routine">&#128465;</button>
+      </div>
+    </div>`).join('');
+}
+
+function editRoutine(id) {
+  const r = state.routines.find((x) => x.id === id);
+  if (!r) return;
+
+  openSheet('Edit routine', `
+    <label class="field">
+      <span>Name</span>
+      <input class="text" id="routine-name" value="${esc(r.name)}" placeholder="Push Day A">
+    </label>
+    <div id="routine-items">
+      ${r.items.length
+        ? r.items.map((it, i) => `
+          <div class="pick">
+            <div class="grow">
+              <div class="nm">${esc(it.name)}</div>
+              <div class="card-sub">${it.type}</div>
+            </div>
+            <button class="icon-btn" data-action="routine-remove-item" data-id="${id}" data-index="${i}">&times;</button>
+          </div>`).join('')
+        : '<p class="muted small">No exercises yet.</p>'}
+    </div>
+    <button class="btn block secondary" data-action="routine-add-item" data-id="${id}" style="margin-top:8px">+ Add exercise</button>
+    <button class="btn block" data-action="routine-save" data-id="${id}" style="margin-top:10px">Save routine</button>`);
+}
+
+/* ------------------------------------------------------------ history view */
+
+function renderHistory() {
+  const el = $('#view-history');
+  $('#btn-header-action').hidden = true;
+
+  if (!state.sessions.length) {
+    el.innerHTML = `
+      <div class="empty">
+        <h3>Nothing logged yet</h3>
+        <p>Finished workouts show up here.</p>
+      </div>`;
+    return;
+  }
+
+  el.innerHTML = state.sessions.map((s) => {
+    const totalSets = s.entries.reduce((n, e) => n + e.sets.length, 0);
+    return `
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">${esc(s.name)}</div>
+          <div class="card-sub">${fmtDate(s.date)} &middot; ${fmtDuration(s.durationMs)} &middot; ${totalSets} sets</div>
+        </div>
+        <button class="icon-btn" data-action="delete-session" data-id="${s.id}" aria-label="Delete">&#128465;</button>
+      </div>
+      ${s.entries.map((e) => `
+        <div style="margin-top:8px">
+          <div class="small" style="font-weight:600">${esc(e.name)}</div>
+          <div class="small muted">${e.sets.map((set) => e.type === 'cardio'
+            ? `${esc(set.distance) || '—'} / ${esc(set.minutes) || '—'}min`
+            : `${esc(set.weight) || '—'}${state.settings.units}&times;${esc(set.reps) || '—'}`
+          ).join(' &nbsp; ')}</div>
+        </div>`).join('')}
+    </div>`;
+  }).join('');
+}
+
+/* ----------------------------------------------------------- settings view */
+
+function renderSettings() {
+  const el = $('#view-settings');
+  $('#btn-header-action').hidden = true;
+  const st = state.settings;
+
+  el.innerHTML = `
+    <div class="card">
+      <div class="card-title" style="margin-bottom:12px">Preferences</div>
+      <label class="field">
+        <span>Weight units</span>
+        <select class="text" data-setting="units">
+          <option value="lb" ${st.units === 'lb' ? 'selected' : ''}>Pounds (lb)</option>
+          <option value="kg" ${st.units === 'kg' ? 'selected' : ''}>Kilograms (kg)</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>Default rest timer (seconds) — 0 turns it off</span>
+        <input class="text" type="number" inputmode="numeric" min="0" max="600"
+               data-setting="restSeconds" value="${st.restSeconds}">
+      </label>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Your data</div>
+      <p class="small muted">Everything is stored on this device only. Export a backup now and then —
+        clearing your browser data, or a long stretch without opening the app on iPhone, can wipe it.</p>
+      <button class="btn block secondary" data-action="export">Export backup file</button>
+      <button class="btn block secondary" data-action="import" style="margin-top:8px">Import backup file</button>
+      <button class="btn block danger" data-action="wipe" style="margin-top:14px">Erase all data</button>
+    </div>
+
+    <p class="small muted center" style="margin-top:18px">
+      ${state.sessions.length} workout${state.sessions.length === 1 ? '' : 's'} &middot;
+      ${state.routines.length} routine${state.routines.length === 1 ? '' : 's'}
+    </p>`;
+}
+
+function exportData() {
+  const payload = {
+    version: state.version,
+    settings: state.settings,
+    routines: state.routines,
+    sessions: state.sessions,
+    exportedAt: new Date().toISOString(),
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `wrk-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function importData() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'application/json,.json';
+
+  input.onchange = () => {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const data = JSON.parse(String(reader.result));
+        if (!Array.isArray(data.sessions) || !Array.isArray(data.routines)) {
+          throw new Error('this does not look like a Wrk backup');
+        }
+        if (!confirm(`Replace everything on this device with ${data.sessions.length} workouts and ${data.routines.length} routines?`)) return;
+        state = {
+          ...clone(DEFAULTS),
+          ...data,
+          settings: { ...DEFAULTS.settings, ...(data.settings || {}) },
+          active: null,
+        };
+        save();
+        render();
+        toast('Backup restored');
+      } catch (err) {
+        console.error(err);
+        alert(`Could not read that file: ${err.message}`);
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  input.click();
+}
+
+/* --------------------------------------------------------- exercise picker */
+
+function exercisePicker(onPickAction, contextId) {
+  const groups = [...new Set(LIBRARY.map((e) => e.group))];
+
+  openSheet('Add exercise', `
+    <input class="text" id="ex-search" placeholder="Search, or type a custom name" autocomplete="off">
+    <button class="btn block secondary" data-action="add-custom" data-ctx="${contextId || ''}"
+            data-pick="${onPickAction}" style="margin:10px 0 16px">Add as custom exercise</button>
+    <div id="ex-list">
+      ${groups.map((g) => `
+        <h3 class="small muted" style="margin:14px 0 8px">${g.toUpperCase()}</h3>
+        ${LIBRARY.filter((e) => e.group === g).map((e) => `
+          <button class="pick" data-action="${onPickAction}" data-ctx="${contextId || ''}"
+                  data-name="${esc(e.name)}" data-type="${e.type}">
+            <div class="grow"><div class="nm">${esc(e.name)}</div></div>
+            <span class="pill ${e.type}">${e.type}</span>
+          </button>`).join('')}`).join('')}
+    </div>`);
+
+  $('#ex-search').addEventListener('input', (ev) => {
+    const q = ev.target.value.trim().toLowerCase();
+    $$('#ex-list .pick').forEach((btn) => {
+      btn.style.display = btn.dataset.name.toLowerCase().includes(q) ? '' : 'none';
+    });
+    $$('#ex-list h3').forEach((h) => {
+      let sib = h.nextElementSibling;
+      let any = false;
+      while (sib && sib.tagName === 'BUTTON') {
+        if (sib.style.display !== 'none') any = true;
+        sib = sib.nextElementSibling;
+      }
+      h.style.display = any ? '' : 'none';
+    });
+  });
+}
+
+/* ------------------------------------------------------------ interactions */
+
+document.addEventListener('click', (ev) => {
+  const btn = ev.target.closest('[data-action], [data-close]');
+  if (!btn) return;
+
+  if (btn.hasAttribute('data-close')) { closeSheet(); return; }
+
+  const { action, id } = btn.dataset;
+  const row = btn.closest('[data-set]');
+  const card = btn.closest('[data-entry]');
+
+  switch (action) {
+    /* ---- starting and ending workouts ---- */
+    case 'start-empty':
+      if (state.active && !confirm('You already have a workout in progress. Replace it?')) return;
+      startSession(null);
+      break;
+
+    case 'start-routine': {
+      const r = state.routines.find((x) => x.id === id);
+      if (!r) return;
+      if (state.active && !confirm('You already have a workout in progress. Replace it?')) return;
+      startSession(r);
+      break;
+    }
+
+    case 'finish':
+      finishSession();
+      break;
+
+    case 'discard':
+      if (!confirm('Discard this workout? It will not be saved.')) return;
+      state.active = null;
+      stopRest();
+      save();
+      render();
+      break;
+
+    case 'rename-session': {
+      const name = prompt('Name this workout', state.active.name);
+      if (name === null) return;
+      state.active.name = name.trim() || state.active.name;
+      save();
+      render();
+      break;
+    }
+
+    case 'save-as-routine': {
+      if (!state.active.entries.length) { toast('Add an exercise first'); return; }
+      const name = prompt('Name this routine', state.active.name);
+      if (name === null) return;
+      state.routines.push({
+        id: uid(),
+        name: name.trim() || 'Untitled routine',
+        items: state.active.entries.map((e) => ({ name: e.name, type: e.type })),
+      });
+      save();
+      toast('Routine saved');
+      break;
+    }
+
+    /* ---- exercises and sets ---- */
+    case 'add-exercise':
+      exercisePicker('pick-into-session');
+      break;
+
+    case 'pick-into-session':
+      state.active.entries.push(makeEntry({ name: btn.dataset.name, type: btn.dataset.type }));
+      save();
+      closeSheet();
+      render();
+      break;
+
+    case 'remove-entry':
+      if (!confirm('Remove this exercise from the workout?')) return;
+      state.active.entries = state.active.entries.filter((e) => e.id !== id);
+      save();
+      render();
+      break;
+
+    case 'add-set': {
+      const entry = state.active.entries.find((e) => e.id === id);
+      entry.sets.push(newSet(entry.type));
+      save();
+      render();
+      break;
+    }
+
+    case 'remove-set': {
+      const { entry } = findSet(card.dataset.entry, row.dataset.set);
+      entry.sets = entry.sets.filter((s) => s.id !== row.dataset.set);
+      if (!entry.sets.length) entry.sets.push(newSet(entry.type));
+      save();
+      render();
+      break;
+    }
+
+    case 'toggle-set': {
+      const { set } = findSet(card.dataset.entry, row.dataset.set);
+      set.done = !set.done;
+      save();
+      /* Update in place instead of re-rendering, so typing focus isn't lost. */
+      row.classList.toggle('done', set.done);
+      btn.classList.toggle('on', set.done);
+      updateSummary();
+      if (set.done && state.settings.restSeconds > 0) startRest(state.settings.restSeconds);
+      break;
+    }
+
+    /* ---- routines ---- */
+    case 'new-routine': {
+      const name = prompt('Routine name', 'Push Day A');
+      if (name === null) return;
+      const r = { id: uid(), name: name.trim() || 'Untitled routine', items: [] };
+      state.routines.push(r);
+      save();
+      go('routines');
+      editRoutine(r.id);
+      break;
+    }
+
+    case 'edit-routine':
+      editRoutine(id);
+      break;
+
+    case 'delete-routine':
+      if (!confirm('Delete this routine? Workouts you already logged are not affected.')) return;
+      state.routines = state.routines.filter((r) => r.id !== id);
+      save();
+      render();
+      break;
+
+    case 'routine-add-item': {
+      /* Keep any name edit before the picker replaces the sheet. */
+      const nameInput = $('#routine-name');
+      const r = state.routines.find((x) => x.id === id);
+      if (nameInput && r) { r.name = nameInput.value.trim() || r.name; save(); }
+      exercisePicker('pick-into-routine', id);
+      break;
+    }
+
+    case 'pick-into-routine': {
+      const r = state.routines.find((x) => x.id === btn.dataset.ctx);
+      r.items.push({ name: btn.dataset.name, type: btn.dataset.type });
+      save();
+      editRoutine(r.id);
+      break;
+    }
+
+    case 'routine-remove-item': {
+      const r = state.routines.find((x) => x.id === id);
+      r.items.splice(Number(btn.dataset.index), 1);
+      save();
+      editRoutine(r.id);
+      break;
+    }
+
+    case 'routine-save': {
+      const r = state.routines.find((x) => x.id === id);
+      r.name = $('#routine-name').value.trim() || r.name;
+      save();
+      closeSheet();
+      render();
+      toast('Routine saved');
+      break;
+    }
+
+    case 'add-custom': {
+      const name = ($('#ex-search') ? $('#ex-search').value : '').trim();
+      if (!name) { toast('Type a name first'); return; }
+      const type = confirm('Is this a cardio exercise?\n\nOK = cardio, Cancel = lifting') ? 'cardio' : 'lifting';
+      if (btn.dataset.pick === 'pick-into-routine') {
+        const r = state.routines.find((x) => x.id === btn.dataset.ctx);
+        r.items.push({ name, type });
+        save();
+        editRoutine(r.id);
+      } else {
+        state.active.entries.push(makeEntry({ name, type }));
+        save();
+        closeSheet();
+        render();
+      }
+      break;
+    }
+
+    /* ---- history ---- */
+    case 'delete-session':
+      if (!confirm('Delete this logged workout?')) return;
+      state.sessions = state.sessions.filter((s) => s.id !== id);
+      save();
+      render();
+      break;
+
+    /* ---- settings ---- */
+    case 'export':
+      exportData();
+      break;
+
+    case 'import':
+      importData();
+      break;
+
+    case 'wipe':
+      if (!confirm('Erase every workout, routine and setting on this device? This cannot be undone.')) return;
+      if (!confirm('Really erase everything?')) return;
+      state = clone(DEFAULTS);
+      save();
+      render();
+      toast('All data erased');
+      break;
+  }
+});
+
+/* Set cells and settings write straight to state — no re-render, so focus survives. */
+document.addEventListener('input', (ev) => {
+  const el = ev.target;
+
+  if (el.dataset.field) {
+    const row = el.closest('[data-set]');
+    const card = el.closest('[data-entry]');
+    const { set } = findSet(card.dataset.entry, row.dataset.set);
+    if (set) { set[el.dataset.field] = el.value; save(); }
+    return;
+  }
+
+  if (el.dataset.setting) {
+    const key = el.dataset.setting;
+    state.settings[key] = key === 'restSeconds' ? Math.max(0, Number(el.value) || 0) : el.value;
+    save();
+  }
+});
+
+$$('.tab').forEach((tab) => tab.addEventListener('click', () => go(tab.dataset.view)));
+$('#rest-skip').addEventListener('click', stopRest);
+$('#rest-add').addEventListener('click', () => {
+  rest.endsAt += 30000;
+  rest.total += 30;
+  updateRest();
+});
+
+/* Keep the "elapsed" line honest while a workout is open. */
+setInterval(() => {
+  if (state.active && currentView === 'workout' && $('#sheet').hidden && !$('.cell:focus')) render();
+}, 30000);
+
+window.addEventListener('beforeunload', save);
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch((err) => console.warn('Service worker failed', err));
+  });
+}
+
+go('workout');

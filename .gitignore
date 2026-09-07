@@ -1,0 +1,7 @@
+# OneDrive / Windows cruft
+desktop.ini
+Thumbs.db
+*.tmp
+
+# Local Claude Code settings
+.claude/settings.local.json

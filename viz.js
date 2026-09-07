@@ -581,7 +581,7 @@ function buildRecapCanvas(sessions, units) {
 
   g.fillStyle = muted;
   g.font = `600 34px ${sans}`;
-  g.fillText('WRK', 90, 130);
+  g.fillText('CADENCE', 90, 130);
   g.font = `400 34px ${sans}`;
   g.fillText(`Week of ${start.toLocaleDateString(undefined, { month: 'long', day: 'numeric' })}`, 90, 186);
 
@@ -650,4 +650,43 @@ function buildRecapCanvas(sessions, units) {
   g.fillText('fosterj3.github.io/Wrk_App', 90, 1000);
 
   return cv;
+}
+
+/* ------------------------------------------------------- csv export */
+
+/* One row per set — the shape a spreadsheet or a coach can actually read.
+   A JSON backup is for restoring; this is for looking at. */
+function buildCsv(sessions, units) {
+  const head = [
+    'Date', 'Time', 'Workout', 'Exercise', 'Type', 'Set',
+    `Weight (${units})`, 'Reps', 'Distance', 'Minutes', 'Seconds',
+  ];
+
+  const cell = (v) => {
+    const s = v == null ? '' : String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+
+  const rows = [head.join(',')];
+
+  [...sessions]
+    .sort((a, b) => +new Date(a.date) - +new Date(b.date))   /* oldest first reads better */
+    .forEach((s) => {
+      const d = new Date(s.date);
+      const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const time = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+
+      s.entries.forEach((e) => {
+        e.sets.forEach((set, i) => {
+          rows.push([
+            date, time, s.name, e.name, e.type, i + 1,
+            set.weight ?? '', set.reps ?? '',
+            set.distance ?? '', set.minutes ?? '', set.seconds ?? '',
+          ].map(cell).join(','));
+        });
+      });
+    });
+
+  /* Leading BOM so Excel opens it as UTF-8 rather than mangling any accents. */
+  return `\ufeff${rows.join('\r\n')}\r\n`;
 }

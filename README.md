@@ -1,9 +1,14 @@
-# Wrk
+# Cadence
 
-A workout tracker that runs in the browser and installs to your phone's home screen.
+**Log the work. See the pattern.**
+
+A workout log that runs in the browser and installs to your phone's home screen.
 Log lifting and cardio, save reusable routines, and time your rest between sets.
 
-**Live app:** https://fosterj3.github.io/Wrk_App/
+**Live:** [what it is](https://fosterj3.github.io/Wrk_App/) · [the app](https://fosterj3.github.io/Wrk_App/app.html)
+
+The repo is still named `Wrk_App` — renaming it would change the published URL and break every
+installed copy, so only the product name changed.
 
 ## What it does
 
@@ -39,7 +44,8 @@ account, which means:
 - Clearing your browser data erases your history.
 - On iPhone, iOS can evict a web app's storage if you don't open it for several weeks.
 
-So use **Settings → Export backup file** now and then. *Import* restores it.
+So use **Settings → Backup file (.json)** now and then; *Import* restores it. There is also a
+**Spreadsheet (.csv)** export for reading and sharing — see below.
 
 ## Running it locally
 
@@ -64,7 +70,9 @@ Then open <http://localhost:8080/>.
 
 | File | Purpose |
 | --- | --- |
-| `index.html` | Page shell — tab bar, view containers, bottom sheet |
+| `index.html` | Landing page — what the app is, for first-time visitors |
+| `app.html` | The app shell — tab bar, view containers, bottom sheet |
+| `landing.css` | Landing page styling (palette tokens come from `styles.css`) |
 | `app.js` | All app logic: state, storage, rendering, rest timer |
 | `parse.js` | Turns pasted free-form workout text into routines |
 | `viz.js` | Chart building and stats aggregation for the Data tab |
@@ -81,7 +89,7 @@ markup with old script means missing elements and a blank screen. Two things pre
 have to stay in step:
 
 1. `ASSET_V` in `sw.js`
-2. the `?v=` query on the `styles.css` / `parse.js` / `viz.js` / `app.js` tags in `index.html`
+2. the `?v=` query on the asset tags in **both** `index.html` and `app.html`
 
 **Bump both to the same number on every release.** A changed `?v=` is a new URL, so the browser
 cannot serve a stale copy of it, and `ASSET_V` names the cache so the old one is dropped.
@@ -93,7 +101,7 @@ the *second* refresh, which reads as "my deploy did not work".
 
 ## Not built yet
 
-Progress charts and per-exercise trends, supersets, plate calculator, and any kind of cross-device sync.
+Supersets, cross-device sync, friends, notifications, and nutrition tracking.
 
 ## What the paste parser understands
 
@@ -130,7 +138,7 @@ Days are coloured by what kind of session it was:
 
 | Colour | Means |
 | --- | --- |
-| Blue | Lifting only |
+| Purple | Lifting only |
 | Amber | Cardio only |
 | Green | Both in the same session |
 
@@ -293,3 +301,32 @@ Two consequences worth knowing:
 
 The paste importer reads `Plank 3x45s`, `Side plank 2 x 30 sec` and `Wall sit 60s`. A bare
 `Plank 3x60` is read as 60 seconds rather than 60 reps, because the exercise is known to be timed.
+
+## Editing what the parser guessed
+
+Imports are a guess, so both the preview and the saved routine let you fix them.
+
+In the **paste preview**, every exercise name is an editable field — correct `Incline DB Press` to
+whatever you call it before anything is saved. In the **routine editor**, each exercise has both an
+editable name and a dropdown for how it's recorded (weight & reps / held time / distance & time),
+because the parser can type an exercise wrongly and that used to be unfixable without deleting it.
+
+Changing how an exercise is recorded clears its target sets — a weight-and-reps target is
+meaningless once it's a timed hold, and keeping it would show nonsense in the routine summary.
+
+Clearing a name field doesn't erase the name; the blank simply isn't saved, so you can select-all
+and retype without losing it if you change your mind.
+
+## Exporting
+
+Two formats, both offered to the OS share sheet first (so you can mail them straight from a phone)
+and downloaded if sharing isn't available:
+
+| Format | For |
+| --- | --- |
+| `.json` | The restoreable backup. This is the one to keep, and the one Import reads. |
+| `.csv` | Reading and sending. One row per set, opens in any spreadsheet. |
+
+The CSV has columns `Date, Time, Workout, Exercise, Type, Set, Weight, Reps, Distance, Minutes,
+Seconds` and is written oldest-first with a UTF-8 BOM, so Excel opens it correctly instead of
+mangling non-ASCII exercise names.

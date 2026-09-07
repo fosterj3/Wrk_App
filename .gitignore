@@ -8,3 +8,5 @@ Thumbs.db
 
 # Backup files exported by the app during testing
 wrk-backup-*.json
+cadence-backup-*.json
+cadence-workouts-*.csv

@@ -3,78 +3,172 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0f1115">
-<meta name="description" content="A local-first workout tracker.">
-<title>Wrk</title>
-<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#08060c">
+<meta name="description" content="Cadence is a workout log that starts from the notes you already keep. Paste your routine, log the work, see the pattern. Free, private, works offline.">
+<title>Cadence — log the work, see the pattern</title>
 <link rel="apple-touch-icon" href="icons/icon-192.png">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Wrk">
-<link rel="stylesheet" href="styles.css?v=10">
+<link rel="manifest" href="manifest.webmanifest">
 <script>
-  /* Set the theme before first paint, otherwise a light-mode user gets a
-     black flash while app.js loads. Kept deliberately tiny and defensive. */
+  /* Launched from the home screen? Skip the pitch, go straight to the app. */
   (function () {
+    var standalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
+      || window.navigator.standalone === true;
+    if (standalone) { location.replace('app.html'); return; }
     var theme = 'dark';
     try {
       var saved = JSON.parse(localStorage.getItem('wrk.v1') || '{}');
       theme = (saved.settings && saved.settings.theme)
         || (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
-    } catch (e) { /* fall back to dark */ }
+    } catch (e) { /* dark it is */ }
     document.documentElement.setAttribute('data-theme', theme);
   })();
 </script>
+<link rel="stylesheet" href="styles.css?v=11">
+<link rel="stylesheet" href="landing.css?v=11">
 </head>
-<body>
+<body class="landing">
 
-<header class="topbar">
-  <h1 id="topbar-title">Workout</h1>
-  <button id="btn-header-action" class="ghost" hidden></button>
+<header class="hero">
+  <div class="wrap">
+    <div class="brand">
+      <img src="icons/icon-192.png" alt="" width="44" height="44">
+      <span>Cadence</span>
+    </div>
+
+    <h1>Log the work.<br>See the pattern.</h1>
+    <p class="lede">
+      A workout log that starts from the notes you already keep. Paste in the routine
+      that's sitting in your phone, tick off your sets, and watch the weeks add up.
+    </p>
+
+    <div class="cta-row">
+      <a class="btn big" id="cta" href="app.html">Open Cadence</a>
+      <span class="cta-note">Free &middot; no account &middot; works offline</span>
+    </div>
+  </div>
 </header>
 
-<main id="main">
-  <section id="view-workout" class="view"></section>
-  <section id="view-routines" class="view" hidden></section>
-  <section id="view-calendar" class="view" hidden></section>
-  <section id="view-data" class="view" hidden></section>
-  <section id="view-settings" class="view" hidden></section>
+<main class="wrap">
+
+  <section class="paste-demo">
+    <h2>Start from what you've already written</h2>
+    <p>
+      Most people already keep their program in a notes app. Paste it in and Cadence reads it —
+      then shows you what it understood before saving anything.
+    </p>
+    <div class="demo-grid">
+      <div class="demo-side">
+        <div class="demo-label">Your notes</div>
+        <pre>Push Day A
+Bench Press 3x8 @ 185
+Incline DB Press 3 sets of 10
+Lateral Raises 3x15
+Plank 3x45s
+Treadmill 20 min</pre>
+      </div>
+      <div class="demo-arrow" aria-hidden="true">&rarr;</div>
+      <div class="demo-side">
+        <div class="demo-label">What you get</div>
+        <ul class="demo-out">
+          <li><span>Barbell Bench Press</span><b>3 &times; 8 @ 185</b></li>
+          <li><span>Incline DB Press</span><b>3 &times; 10</b></li>
+          <li><span>Dumbbell Lateral Raise</span><b>3 &times; 15</b></li>
+          <li><span>Plank</span><b>3 &times; 45s</b></li>
+          <li><span>Treadmill</span><b>20 min</b></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>What it does</h2>
+    <div class="features">
+      <div class="feature">
+        <h3>Knows what you lifted last time</h3>
+        <p>Every exercise shows your last session's sets, so you walk up to the bar already
+          knowing the number to beat. One tap copies it in.</p>
+      </div>
+      <div class="feature">
+        <h3>A calendar you can fill in late</h3>
+        <p>Colour-coded by lifting, cardio or both. Forgot to log Tuesday? Tap Tuesday and
+          add it.</p>
+      </div>
+      <div class="feature">
+        <h3>Charts that answer real questions</h3>
+        <p>Am I training as often as I think? Is my bench actually going up? Estimated 1RM per
+          exercise, volume per week, and how often you showed up.</p>
+      </div>
+      <div class="feature">
+        <h3>Timers for rest and for holds</h3>
+        <p>Rest counts down between sets. For a plank, the stopwatch counts up and writes the
+          time straight into the set.</p>
+      </div>
+      <div class="feature">
+        <h3>A weekly goal that nudges</h3>
+        <p>Set a target. If it's Thursday and you're one of three, Cadence says so — while
+          there's still time to fix it.</p>
+      </div>
+      <div class="feature">
+        <h3>Personal records, called out</h3>
+        <p>Beat your best estimated 1RM on a lift and it tells you, right when it happens.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="privacy">
+    <h2>Your data stays on your phone</h2>
+    <p>
+      There is no account and no server. Everything you log lives in your own browser storage,
+      which means nobody — including me — can see your training. It also means
+      <strong>you</strong> are the backup: export a file whenever you like, as a restoreable
+      backup or as a spreadsheet you can email to a coach.
+    </p>
+  </section>
+
+  <section class="install">
+    <h2>Put it on your home screen</h2>
+    <p>Cadence is a web app, so there's no app store and nothing to update. Open it, then:</p>
+    <div class="install-grid">
+      <div class="feature">
+        <h3>iPhone</h3>
+        <p>In Safari, tap Share, then <strong>Add to Home Screen</strong>.</p>
+      </div>
+      <div class="feature">
+        <h3>Android</h3>
+        <p>In Chrome, tap the &vellip; menu, then <strong>Add to Home screen</strong>.</p>
+      </div>
+    </div>
+    <p class="small muted">It then opens full screen and runs without a signal — useful in a
+      basement gym.</p>
+  </section>
+
+  <section class="closer">
+    <a class="btn big" href="app.html">Open Cadence</a>
+    <p class="small muted">Nothing to sign up for. Close the tab and your log is still here.</p>
+  </section>
+
 </main>
 
-<div id="timer-bar" class="timer-bar" hidden>
-  <div class="timer-progress"><div id="timer-fill"></div></div>
-  <div class="timer-row">
-    <span id="timer-label" class="timer-label">Rest</span>
-    <span id="timer-time" class="timer-time">0:00</span>
-    <button id="timer-plus" class="ghost small">+30s</button>
-    <button id="timer-stop" class="ghost small">Skip</button>
-  </div>
-</div>
+<footer class="wrap">
+  <p class="small muted">
+    Built as a personal project &middot;
+    <a href="https://github.com/fosterj3/Wrk_App">Source on GitHub</a>
+  </p>
+</footer>
 
-<nav class="tabbar">
-  <button class="tab is-active" data-view="workout"><span class="tab-ico">&#9679;</span>Workout</button>
-  <button class="tab" data-view="routines"><span class="tab-ico">&#9635;</span>Routines</button>
-  <button class="tab" data-view="calendar"><span class="tab-ico">&#9638;</span>Calendar</button>
-  <button class="tab" data-view="data"><span class="tab-ico">&#9637;</span>Data</button>
-  <button class="tab" data-view="settings"><span class="tab-ico">&#9881;</span>Settings</button>
-</nav>
+<script>
+  /* Someone with a log already doesn't need the sales pitch on the button. */
+  (function () {
+    try {
+      var saved = JSON.parse(localStorage.getItem('wrk.v1') || '{}');
+      var n = (saved.sessions || []).length;
+      if (n > 0) {
+        var cta = document.getElementById('cta');
+        cta.textContent = n === 1 ? 'Back to your log (1 workout)' : 'Back to your log (' + n + ' workouts)';
+      }
+    } catch (e) { /* leave the default */ }
+  })();
+</script>
 
-<div id="sheet" class="sheet" hidden>
-  <div class="sheet-backdrop" data-close></div>
-  <div class="sheet-panel">
-    <div class="sheet-head">
-      <h2 id="sheet-title">Add exercise</h2>
-      <button class="ghost" data-close>Close</button>
-    </div>
-    <div id="sheet-body" class="sheet-body"></div>
-  </div>
-</div>
-
-<div id="viz-tip" class="viz-tip" hidden></div>
-<div id="toast" class="toast" hidden></div>
-
-<script src="parse.js?v=10"></script>
-<script src="viz.js?v=10"></script>
-<script src="app.js?v=10"></script>
 </body>
 </html>

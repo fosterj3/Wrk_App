@@ -1,8 +1,8 @@
 {
-  "name": "Wrk — Workout Tracker",
-  "short_name": "Wrk",
-  "description": "A local-first workout tracker. Log lifting and cardio, save routines, time your rest.",
-  "start_url": "./index.html",
+  "name": "Cadence — Workout Log",
+  "short_name": "Cadence",
+  "description": "A local-first workout log. Paste in the routine you already keep, log the work, see the pattern.",
+  "start_url": "./app.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",

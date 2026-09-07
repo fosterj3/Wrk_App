@@ -1,16 +1,19 @@
 /* Offline cache.
-   Bump ASSET_V on every release AND change the matching ?v= in index.html.
+   Bump ASSET_V on every release AND change the matching ?v= in BOTH index.html
+   (landing) and app.html.
    The two must agree — that is what stops a new index.html from pairing with
    a stale app.js out of the browser's HTTP cache. */
-const ASSET_V = '10';
-const CACHE = `wrk-v${ASSET_V}`;
+const ASSET_V = '11';
+const CACHE = `cadence-v${ASSET_V}`;
 
 /* Same URLs the page actually requests, query string included, so the offline
    cache holds the versions that will really be asked for. */
 const SHELL = [
   './',
   './index.html',
+  './app.html',
   `./styles.css?v=${ASSET_V}`,
+  `./landing.css?v=${ASSET_V}`,
   `./parse.js?v=${ASSET_V}`,
   `./viz.js?v=${ASSET_V}`,
   `./app.js?v=${ASSET_V}`,
@@ -54,6 +57,12 @@ self.addEventListener('fetch', (event) => {
         caches.open(CACHE).then((c) => c.put(req, copy));
         return res;
       })
-      .catch(() => caches.match(req).then((hit) => hit || caches.match('./index.html')))
+      .catch(() => caches.match(req).then((hit) => {
+        if (hit) return hit;
+        /* Offline navigation: fall back to the page they were actually asking
+           for, so the app doesn't drop them on the marketing page. */
+        const wantsApp = url.pathname.endsWith('/app.html');
+        return caches.match(wantsApp ? './app.html' : './index.html');
+      }))
   );
 });

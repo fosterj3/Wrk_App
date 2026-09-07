@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f1115">
+<meta name="description" content="Cadence — a local-first workout log. Log the work, see the pattern.">
+<title>Cadence — workout log</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Cadence">
+<link rel="stylesheet" href="styles.css?v=11">
+<script>
+  /* Set the theme before first paint, otherwise a light-mode user gets a
+     black flash while app.js loads. Kept deliberately tiny and defensive. */
+  (function () {
+    var theme = 'dark';
+    try {
+      var saved = JSON.parse(localStorage.getItem('wrk.v1') || '{}');
+      theme = (saved.settings && saved.settings.theme)
+        || (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+    } catch (e) { /* fall back to dark */ }
+    document.documentElement.setAttribute('data-theme', theme);
+  })();
+</script>
+</head>
+<body>
+
+<header class="topbar">
+  <h1 id="topbar-title">Workout</h1>
+  <button id="btn-header-action" class="ghost" hidden></button>
+</header>
+
+<main id="main">
+  <section id="view-workout" class="view"></section>
+  <section id="view-routines" class="view" hidden></section>
+  <section id="view-calendar" class="view" hidden></section>
+  <section id="view-data" class="view" hidden></section>
+  <section id="view-settings" class="view" hidden></section>
+</main>
+
+<div id="timer-bar" class="timer-bar" hidden>
+  <div class="timer-progress"><div id="timer-fill"></div></div>
+  <div class="timer-row">
+    <span id="timer-label" class="timer-label">Rest</span>
+    <span id="timer-time" class="timer-time">0:00</span>
+    <button id="timer-plus" class="ghost small">+30s</button>
+    <button id="timer-stop" class="ghost small">Skip</button>
+  </div>
+</div>
+
+<nav class="tabbar">
+  <button class="tab is-active" data-view="workout"><span class="tab-ico">&#9679;</span>Workout</button>
+  <button class="tab" data-view="routines"><span class="tab-ico">&#9635;</span>Routines</button>
+  <button class="tab" data-view="calendar"><span class="tab-ico">&#9638;</span>Calendar</button>
+  <button class="tab" data-view="data"><span class="tab-ico">&#9637;</span>Data</button>
+  <button class="tab" data-view="settings"><span class="tab-ico">&#9881;</span>Settings</button>
+</nav>
+
+<div id="sheet" class="sheet" hidden>
+  <div class="sheet-backdrop" data-close></div>
+  <div class="sheet-panel">
+    <div class="sheet-head">
+      <h2 id="sheet-title">Add exercise</h2>
+      <button class="ghost" data-close>Close</button>
+    </div>
+    <div id="sheet-body" class="sheet-body"></div>
+  </div>
+</div>
+
+<div id="viz-tip" class="viz-tip" hidden></div>
+<div id="toast" class="toast" hidden></div>
+
+<script src="parse.js?v=11"></script>
+<script src="viz.js?v=11"></script>
+<script src="app.js?v=11"></script>
+</body>
+</html>

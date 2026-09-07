@@ -1,10 +1,12 @@
-/* Wrk — a local-first workout tracker.
+/* Cadence — a local-first workout log.
    All data lives in localStorage on this device. No accounts, no server. */
 
 'use strict';
 
 /* ------------------------------------------------------------------ store */
 
+/* Deliberately still 'wrk.v1' — the app was renamed to Cadence, but changing
+   this key would orphan every existing user's training history. */
 const STORE_KEY = 'wrk.v1';
 
 const DEFAULTS = {
@@ -903,12 +905,19 @@ function editRoutine(id) {
     <div id="routine-items">
       ${r.items.length
         ? r.items.map((it, i) => `
-          <div class="pick">
-            <div class="grow">
-              <div class="nm">${esc(it.name)}</div>
-              <div class="card-sub">${esc(summarizeItem(it) || it.type)}</div>
+          <div class="item-edit">
+            <input class="text" data-edit-item="${i}" data-rid="${id}"
+                   value="${esc(it.name)}" aria-label="Exercise name">
+            <div class="item-edit-row">
+              <select class="text slim" data-item-type="${i}" data-rid="${id}" aria-label="How it's recorded">
+                <option value="lifting" ${it.type === 'lifting' ? 'selected' : ''}>Weight &amp; reps</option>
+                <option value="timed" ${it.type === 'timed' ? 'selected' : ''}>Held time</option>
+                <option value="cardio" ${it.type === 'cardio' ? 'selected' : ''}>Distance &amp; time</option>
+              </select>
+              <span class="small muted grow">${esc(summarizeItem(it) || '')}</span>
+              <button class="icon-btn" data-action="routine-remove-item" data-id="${id}" data-index="${i}"
+                      aria-label="Remove ${esc(it.name)}">&times;</button>
             </div>
-            <button class="icon-btn" data-action="routine-remove-item" data-id="${id}" data-index="${i}">&times;</button>
           </div>`).join('')
         : '<p class="muted small">No exercises yet.</p>'}
     </div>
@@ -980,15 +989,16 @@ function renderImportPreview() {
           ${r.items.map((it, ii) => {
             const t = summarizeItem(it);
             return `
-            <div class="pick" style="margin-bottom:6px">
-              <div class="grow">
-                <div class="nm">${esc(it.name)}
-                  ${it.custom ? '<span class="pill" style="margin-left:6px">new</span>' : ''}</div>
-                <div class="card-sub">${esc(t || 'no sets given')}</div>
+            <div class="item-edit">
+              <input class="text" data-pitem="${ii}" data-pr="${ri}"
+                     value="${esc(it.name)}" aria-label="Exercise name">
+              <div class="item-edit-row">
+                <span class="pill ${it.type}">${it.type}</span>
+                ${it.custom ? '<span class="pill">new</span>' : ''}
+                <span class="small muted grow">${esc(t || 'no sets given')}</span>
+                <button class="icon-btn" data-action="paste-drop" data-r="${ri}" data-i="${ii}"
+                        aria-label="Remove ${esc(it.name)}">&times;</button>
               </div>
-              <span class="pill ${it.type}">${it.type}</span>
-              <button class="icon-btn" data-action="paste-drop" data-r="${ri}" data-i="${ii}"
-                      aria-label="Remove ${esc(it.name)}">&times;</button>
             </div>`;
           }).join('')}
         </div>
@@ -1013,6 +1023,11 @@ function syncImportNames() {
   $$('[data-rname]').forEach((input) => {
     const r = pendingImport.routines[Number(input.dataset.rname)];
     if (r) r.name = input.value.trim() || r.name;
+  });
+  $$('[data-pitem]').forEach((input) => {
+    const r = pendingImport.routines[Number(input.dataset.pr)];
+    const item = r && r.items[Number(input.dataset.pitem)];
+    if (item) item.name = input.value.trim() || item.name;
   });
 }
 
@@ -1518,10 +1533,20 @@ function renderSettings() {
 
     <div class="card">
       <div class="card-title">Your data</div>
-      <p class="small muted">Everything is stored on this device only. Export a backup now and then —
-        clearing your browser data, or a long stretch without opening the app on iPhone, can wipe it.</p>
-      <button class="btn block secondary" data-action="export">Export backup file</button>
-      <button class="btn block secondary" data-action="import" style="margin-top:8px">Import backup file</button>
+      <p class="small muted">Everything is stored on this device only. Export now and then —
+        clearing your browser data, or a long stretch without opening the app on iPhone, can wipe it.
+        ${st.lastExport
+          ? `Last backup ${esc(new Date(st.lastExport).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }))}.`
+          : 'You have never exported.'}</p>
+
+      <button class="btn block secondary" data-action="export">Backup file (.json)</button>
+      <p class="small muted" style="margin:6px 0 12px">Restoreable. This is the one to keep.</p>
+
+      <button class="btn block secondary" data-action="export-csv">Spreadsheet (.csv)</button>
+      <p class="small muted" style="margin:6px 0 12px">Readable anywhere — open on your phone, or
+        email it to a coach. One row per set.</p>
+
+      <button class="btn block secondary" data-action="import">Import backup file</button>
       <button class="btn block danger" data-action="wipe" style="margin-top:14px">Erase all data</button>
     </div>
 
@@ -1531,7 +1556,41 @@ function renderSettings() {
     </p>`;
 }
 
-function exportData() {
+/**
+ * Hand a file to the OS share sheet, falling back to a download.
+ *
+ * Sharing matters more than downloading on a phone: it's what lets someone mail
+ * the file to a coach or drop it in a chat. Desktop browsers mostly refuse to
+ * share files, hence the fallback.
+ */
+async function shareOrDownload(blob, filename, shareText) {
+  const file = new File([blob], filename, { type: blob.type });
+
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], ...(shareText ? { text: shareText } : {}) });
+      return 'shared';
+    } catch (err) {
+      if (err && err.name === 'AbortError') return 'cancelled';
+      /* Fall through to a download. */
+    }
+  }
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return 'downloaded';
+}
+
+const stamp = () => new Date().toISOString().slice(0, 10);
+
+/* The restoreable one. Keep the shape importData() expects. */
+async function exportData() {
   state.settings.lastExport = new Date().toISOString();
   delete state.settings.backupSnooze;
   save();
@@ -1544,14 +1603,18 @@ function exportData() {
     exportedAt: new Date().toISOString(),
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `wrk-backup-${new Date().toISOString().slice(0, 10)}.json`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  const result = await shareOrDownload(blob, `cadence-backup-${stamp()}.json`, 'Cadence backup');
+  if (result === 'downloaded') toast('Backup saved');
+  render();
+}
+
+/* The readable one — a row per set, for a spreadsheet or an email. */
+async function exportCsv() {
+  if (!state.sessions.length) { toast('Nothing logged yet'); return; }
+  const csv = buildCsv(state.sessions, state.settings.units);
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const result = await shareOrDownload(blob, `cadence-workouts-${stamp()}.csv`, 'My workouts');
+  if (result === 'downloaded') toast('Spreadsheet saved');
 }
 
 function importData() {
@@ -1567,7 +1630,7 @@ function importData() {
       try {
         const data = JSON.parse(String(reader.result));
         if (!Array.isArray(data.sessions) || !Array.isArray(data.routines)) {
-          throw new Error('this does not look like a Wrk backup');
+          throw new Error('this does not look like a Cadence backup');
         }
         if (!confirm(`Replace everything on this device with ${data.sessions.length} workouts and ${data.routines.length} routines?`)) return;
         state = {
@@ -2050,6 +2113,10 @@ document.addEventListener('click', (ev) => {
       exportData();
       break;
 
+    case 'export-csv':
+      exportCsv();
+      break;
+
     case 'import':
       importData();
       break;
@@ -2077,6 +2144,25 @@ document.addEventListener('input', (ev) => {
     return;
   }
 
+  /* Renaming an exercise inside a saved routine. A blank box isn't persisted,
+     so clearing the field to retype can't wipe the name. */
+  if (el.dataset.editItem !== undefined) {
+    const r = state.routines.find((x) => x.id === el.dataset.rid);
+    const item = r && r.items[Number(el.dataset.editItem)];
+    const name = el.value.trim();
+    if (item && name) { item.name = name; save(); }
+    return;
+  }
+
+  /* Same, for an exercise in the paste-import preview. */
+  if (el.dataset.pitem !== undefined && pendingImport) {
+    const routine = pendingImport.routines[Number(el.dataset.pr)];
+    const item = routine && routine.items[Number(el.dataset.pitem)];
+    const name = el.value.trim();
+    if (item && name) item.name = name;
+    return;
+  }
+
   if (el.hasAttribute('data-duration') && state.active) {
     state.active.durationMin = el.value === '' ? null : Math.max(0, Number(el.value) || 0);
     save();
@@ -2086,6 +2172,20 @@ document.addEventListener('input', (ev) => {
   if (el.dataset.select === 'exercise') {
     dataExercise = el.value;
     render();
+    return;
+  }
+
+  /* Changing how an exercise is recorded invalidates its target sets — a
+     weight/reps target means nothing once it's a timed hold. */
+  if (el.dataset.itemType !== undefined) {
+    const r = state.routines.find((x) => x.id === el.dataset.rid);
+    const item = r && r.items[Number(el.dataset.itemType)];
+    if (item && item.type !== el.value) {
+      item.type = el.value;
+      item.sets = [{}];
+      save();
+      editRoutine(r.id);
+    }
     return;
   }
 

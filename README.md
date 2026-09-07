@@ -10,6 +10,11 @@ Log lifting and cardio, save reusable routines, and time your rest between sets.
 - **Log workouts** — add exercises, record weight × reps (lifting) or distance / minutes (cardio), tick sets off as you go.
 - **Paste from your notes** — paste a workout or a whole program straight out of Notes and it becomes routines, with sets, reps and weights filled in. It shows you what it understood before saving anything.
 - **Routines** — save a workout as a template ("Push Day A") and load it instead of retyping it every session.
+- **Last time you did this** — every exercise shows what you lifted last session, with a Repeat button to copy those numbers in.
+- **Personal records** — beat your best estimated 1RM on a lift and the app says so, once per exercise per workout.
+- **Weekly goal** — set a target and a progress ring tells you where you are and whether the week is slipping away.
+- **Plate calculator** — what to load per side for any target weight.
+- **Share your week** — a square image of your week for the group chat.
 - **Rest timer** — starts automatically when you tick a set, with a chime and a vibration when it's up. Configurable, or off.
 - **Calendar** — month and week views showing which days you trained, colour-coded by what you did. Tap any day to see that day's workouts in full, or delete one.
 - **Data** — charts for how often you train, what kind, your strength progression per exercise, weekly volume and cardio, and your most-trained lifts.
@@ -196,3 +201,33 @@ didn't.
 
 Count axes force a whole-number step. Without that, a 0–1 workout count picks a 0.5 step and the
 axis renders as `0, 1, 1` once the labels round.
+
+## Habit and accountability features
+
+None of these need a server — they all read the history already on the device.
+
+**Last time you did this.** Under every exercise, what you did in your most recent session with it.
+This is the reason to open the app mid-set: it turns a logbook into something that tells you what to
+lift today. `Repeat` copies those numbers straight into the sets.
+
+**Personal records.** Completing a set that beats your best estimated 1RM for that lift shows a
+`PR` badge and a toast. It only fires when there is a previous best to beat — otherwise the first
+set you ever log would be a "record" — and only once per exercise per workout, so a working set of
+five doesn't celebrate five times.
+
+**Weekly goal.** Set a target in Settings (0 turns it off). A ring on the Workout and Data tabs shows
+progress, and turns amber when you're behind far enough that every remaining day has to be a training
+day. That "in danger" logic is `workouts remaining >= days remaining`.
+
+**Plate calculator.** Per-side breakdown for a target weight, seeded from the heaviest weight already
+entered for that exercise. Bar weight is configurable. If a target can't be built from standard
+plates it says how much is left over rather than rounding silently.
+
+**Share your week.** Renders a 1080×1080 PNG on a canvas — workout count, a dot per day coloured the
+way the calendar colours it, volume and cardio — and hands it to the native share sheet. Falls back
+to a download where `navigator.canShare` doesn't accept files (most desktop browsers). The card reads
+the live theme tokens off `:root`, so it matches whichever theme is active.
+
+**Backup nudge.** After five logged workouts, if you've never exported or it's been over 30 days, a
+banner offers to export. "Later" snoozes it for a week; exporting clears it. This exists because
+local-only storage means a cleared browser is a total loss.

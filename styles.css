@@ -224,7 +224,9 @@ input.text:focus,select.text:focus{outline:2px solid var(--accent);outline-offse
 .rest-time{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums;margin-right:auto}
 
 /* ---------- sheet ---------- */
-.sheet{position:fixed;inset:0;z-index:60;display:flex;align-items:flex-end}
+.sheet{position:fixed;inset:0;z-index:70;display:flex;align-items:flex-end}
+body.sheet-open .tabbar,
+body.sheet-open .rest-bar{visibility:hidden}
 .sheet-backdrop{position:absolute;inset:0;background:var(--scrim)}
 .sheet-panel{
   position:relative;width:100%;max-height:86vh;display:flex;flex-direction:column;
@@ -429,3 +431,48 @@ select.text.slim{width:auto;flex:1;min-width:150px;padding:8px 10px;font-size:13
 }
 .viz-tip .tip-head{display:block;font-weight:700}
 .viz-tip .tip-sub{display:block;opacity:.82}
+
+/* ---------- last time, PR, goal, backup, plates ---------- */
+.lastline{
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  font-size:13px;margin:-2px 0 10px;
+}
+.lastline b{font-variant-numeric:tabular-nums;font-weight:600}
+.lastline .linkish{padding:2px 4px;font-size:13px}
+
+.pill.pr{
+  color:var(--good);border-color:var(--good);
+  font-weight:700;letter-spacing:.08em;
+}
+
+.goal-card{display:flex;align-items:center;gap:16px}
+.goal-card.at-risk{border-color:var(--warn)}
+.goal-card.hit{border-color:var(--good)}
+
+.ring{width:84px;height:84px;flex:none}
+.ring-track{fill:none;stroke:var(--surface-2);stroke-width:9}
+.ring-fill{
+  fill:none;stroke:var(--series-lift);stroke-width:9;stroke-linecap:round;
+  transition:stroke-dasharray .3s ease;
+}
+.at-risk .ring-fill{stroke:var(--warn)}
+.hit .ring-fill{stroke:var(--good)}
+.ring-num{fill:var(--text);font-size:26px;font-weight:700;text-anchor:middle}
+.ring-den{fill:var(--muted);font-size:11px;text-anchor:middle}
+
+.banner{
+  display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+  background:var(--warnbox-bg);border:1px solid var(--warnbox-line);
+  color:var(--warnbox-text);border-radius:var(--radius);
+  padding:14px;margin-bottom:12px;
+}
+.banner strong{display:block;margin-bottom:2px;color:var(--warn)}
+.banner .btn{padding:8px 14px}
+.banner .ghost{padding:8px 12px;color:inherit;border-color:var(--warnbox-line)}
+
+.plates{display:flex;flex-wrap:wrap;gap:8px}
+.plate{
+  background:var(--series-lift);color:var(--accent-ink);
+  border-radius:999px;padding:8px 14px;font-weight:700;
+  font-variant-numeric:tabular-nums;
+}

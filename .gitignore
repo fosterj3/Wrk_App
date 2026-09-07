@@ -5,3 +5,6 @@ Thumbs.db
 
 # Local Claude Code settings
 .claude/settings.local.json
+
+# Backup files exported by the app during testing
+wrk-backup-*.json

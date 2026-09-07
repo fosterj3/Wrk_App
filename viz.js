@@ -440,3 +440,208 @@ function roundedEnds(x, y, w, h, r, roundLeft, roundRight) {
     + (rl ? ` Q${x} ${y} ${x + rl} ${y}` : '')
     + ' Z';
 }
+
+/* ------------------------------------------------- history lookups */
+
+/* Most recent finished session containing this exercise. The active workout is
+   never in state.sessions, so this can't return the set you're typing into. */
+function lastPerformance(sessions, name) {
+  const list = [...sessions].sort((a, b) => +new Date(b.date) - +new Date(a.date));
+  for (const s of list) {
+    const entry = s.entries.find((e) => e.name === name);
+    if (entry && entry.sets.length) {
+      return { date: new Date(s.date), type: entry.type, sets: entry.sets };
+    }
+  }
+  return null;
+}
+
+function summarizeSets(perf, units) {
+  return perf.sets.map((s) => (perf.type === 'cardio'
+    ? `${s.distance || '—'}/${s.minutes || '—'}min`
+    : `${s.weight || '—'}${units}×${s.reps || '—'}`)).join(', ');
+}
+
+/* Best estimated 1RM ever recorded for an exercise. */
+function bestE1rm(sessions, name) {
+  let best = 0;
+  sessions.forEach((s) => s.entries.forEach((e) => {
+    if (e.type === 'cardio' || e.name !== name) return;
+    e.sets.forEach((set) => {
+      const w = Number(set.weight);
+      const r = Number(set.reps);
+      if (set.weight === '' || isNaN(w)) return;
+      const v = e1rm(w, isNaN(r) ? 0 : r);
+      if (v > best) best = v;
+    });
+  }));
+  return best;
+}
+
+/* ------------------------------------------------------ weekly goal */
+
+function weekProgress(sessions, goal) {
+  const start = startOfWeek(new Date());
+  const end = new Date(start);
+  end.setDate(start.getDate() + 7);
+  const done = sessionsIn(sessions, start, end).length;
+  const daysLeft = Math.max(0, Math.ceil((+end - Date.now()) / 86400000));
+  const remaining = Math.max(0, goal - done);
+  return {
+    done,
+    goal,
+    remaining,
+    daysLeft,
+    /* Behind enough that every remaining day has to be a training day. */
+    atRisk: remaining > 0 && remaining >= daysLeft,
+  };
+}
+
+function progressRing(done, goal) {
+  const size = 84;
+  const r = 34;
+  const c = 2 * Math.PI * r;
+  const pct = goal > 0 ? Math.min(1, done / goal) : 0;
+  return `<svg class="ring" viewBox="0 0 ${size} ${size}" role="img"
+      aria-label="${done} of ${goal} workouts done this week">
+    <circle class="ring-track" cx="${size / 2}" cy="${size / 2}" r="${r}"/>
+    <circle class="ring-fill" cx="${size / 2}" cy="${size / 2}" r="${r}"
+            stroke-dasharray="${(c * pct).toFixed(1)} ${(c + 1).toFixed(1)}"
+            transform="rotate(-90 ${size / 2} ${size / 2})"/>
+    <text class="ring-num" x="${size / 2}" y="${size / 2 + 3}" text-anchor="middle">${done}</text>
+    <text class="ring-den" x="${size / 2}" y="${size / 2 + 19}" text-anchor="middle">of ${goal}</text>
+  </svg>`;
+}
+
+/* -------------------------------------------------- plate calculator */
+
+const PLATES = {
+  lb: [45, 35, 25, 10, 5, 2.5],
+  kg: [25, 20, 15, 10, 5, 2.5, 1.25],
+};
+
+/* What goes on ONE side of the bar. */
+function plateBreakdown(target, bar, units) {
+  const plates = PLATES[units] || PLATES.lb;
+  if (!(target > 0) || !(bar >= 0)) return { ok: false, reason: 'empty' };
+  if (target < bar) return { ok: false, reason: 'under-bar' };
+
+  let side = (target - bar) / 2;
+  const out = [];
+  plates.forEach((p) => {
+    const n = Math.floor(side / p + 1e-9);
+    if (n > 0) {
+      out.push({ plate: p, count: n });
+      side -= n * p;
+    }
+  });
+  return { ok: true, perSide: out, leftover: Math.round(side * 100) / 100 };
+}
+
+/* ------------------------------------------------------ share card */
+
+/* Renders the week as a square PNG for the share sheet. Canvas can't read CSS
+   custom properties, so the live token values are pulled off :root first —
+   that keeps the card in step with whichever theme is active. */
+function buildRecapCanvas(sessions, units) {
+  const css = getComputedStyle(document.documentElement);
+  const tok = (name, fallback) => (css.getPropertyValue(name) || '').trim() || fallback;
+
+  const bg = tok('--bg', '#08060c');
+  const card = tok('--surface', '#130f1c');
+  const ink = tok('--text', '#ffffff');
+  const muted = tok('--muted', '#a99ec4');
+  const lift = tok('--series-lift', '#8b5cf6');
+  const cardioCol = tok('--series-cardio', '#c98500');
+  const mixed = tok('--series-mixed', '#199e70');
+  const line = tok('--line', '#312748');
+
+  const S = 1080;
+  const cv = document.createElement('canvas');
+  cv.width = S;
+  cv.height = S;
+  const g = cv.getContext('2d');
+  const sans = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+
+  g.fillStyle = bg;
+  g.fillRect(0, 0, S, S);
+
+  const start = startOfWeek(new Date());
+  const end = new Date(start);
+  end.setDate(start.getDate() + 7);
+  const week = sessionsIn(sessions, start, end);
+  const volume = week.reduce((n, s) => n + sessionVolume(s), 0);
+  const minutes = week.reduce((n, s) => n + sessionCardioMinutes(s), 0);
+
+  g.fillStyle = muted;
+  g.font = `600 34px ${sans}`;
+  g.fillText('WRK', 90, 130);
+  g.font = `400 34px ${sans}`;
+  g.fillText(`Week of ${start.toLocaleDateString(undefined, { month: 'long', day: 'numeric' })}`, 90, 186);
+
+  g.fillStyle = ink;
+  g.font = `700 260px ${sans}`;
+  g.fillText(String(week.length), 84, 430);
+  g.fillStyle = muted;
+  g.font = `500 44px ${sans}`;
+  g.fillText(week.length === 1 ? 'workout' : 'workouts', 90, 500);
+
+  /* One dot per day, coloured the way the calendar colours it. */
+  const byDay = new Map();
+  week.forEach((s) => {
+    const k = dayKey(s.date);
+    if (!byDay.has(k)) byDay.set(k, []);
+    byDay.get(k).push(s);
+  });
+
+  const dotY = 620;
+  const gap = 128;
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    const list = byDay.get(dayKey(d)) || [];
+    const cx = 108 + i * gap;
+    /* Combine across the day: a morning lift plus an evening run is "both". */
+    const kinds = new Set(list.map(sessionKind));
+    const kind = !list.length ? null
+      : kinds.size > 1 || kinds.has('mixed') ? 'mixed'
+      : [...kinds][0];
+
+    g.beginPath();
+    g.arc(cx, dotY, 40, 0, Math.PI * 2);
+    g.fillStyle = kind === 'cardio' ? cardioCol : kind === 'mixed' ? mixed : kind ? lift : card;
+    g.fill();
+    if (!kind) {
+      g.strokeStyle = line;
+      g.lineWidth = 3;
+      g.stroke();
+    }
+
+    g.fillStyle = muted;
+    g.font = `500 26px ${sans}`;
+    g.textAlign = 'center';
+    g.fillText('SMTWTFS'[i], cx, dotY + 92);
+    g.textAlign = 'left';
+  }
+
+  /* Two supporting figures, only when there's something to say. */
+  const stats = [];
+  if (volume > 0) stats.push([compact(volume), `${units} lifted`]);
+  if (minutes > 0) stats.push([compact(minutes), 'min cardio']);
+
+  stats.forEach((s, i) => {
+    const x = 90 + i * 480;
+    g.fillStyle = ink;
+    g.font = `700 82px ${sans}`;
+    g.fillText(s[0], x, 850);
+    g.fillStyle = muted;
+    g.font = `400 34px ${sans}`;
+    g.fillText(s[1], x, 900);
+  });
+
+  g.fillStyle = muted;
+  g.font = `400 28px ${sans}`;
+  g.fillText('fosterj3.github.io/Wrk_App', 90, 1000);
+
+  return cv;
+}

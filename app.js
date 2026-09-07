@@ -10,7 +10,10 @@ const STORE_KEY = 'wrk.v1';
 const DEFAULTS = {
   version: 1,
   /* theme is left null until first run, when it follows the OS preference. */
-  settings: { units: 'lb', restSeconds: 90, calendarView: 'month', theme: null },
+  settings: {
+    units: 'lb', restSeconds: 90, calendarView: 'month', theme: null,
+    weeklyGoal: 3, barWeight: 45, lastExport: null, backupSnooze: null,
+  },
   routines: [],
   sessions: [],
   active: null,
@@ -42,6 +45,9 @@ function save() {
     toast('Could not save — storage may be full.');
   }
 }
+
+/* Settings stored as numbers rather than the input's string value. */
+const NUMERIC_SETTINGS = ['restSeconds', 'weeklyGoal', 'barWeight'];
 
 function clone(v) { return JSON.parse(JSON.stringify(v)); }
 function uid() { return Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4); }
@@ -136,11 +142,16 @@ function openSheet(title, html) {
   $('#sheet-title').textContent = title;
   $('#sheet-body').innerHTML = html;
   $('#sheet').hidden = false;
+  /* The tab bar's backdrop-filter makes its own compositing layer, which paints
+     over the sheet regardless of z-index. Navigating is meaningless behind a
+     modal anyway, so take it out while the sheet is up. */
+  document.body.classList.add('sheet-open');
 }
 
 function closeSheet() {
   $('#sheet').hidden = true;
   $('#sheet-body').innerHTML = '';
+  document.body.classList.remove('sheet-open');
 }
 
 /* -------------------------------------------------------------- rest timer */
@@ -224,6 +235,151 @@ function render() {
   if (currentView === 'settings') renderSettings();
 }
 
+/* ------------------------------------------------- goal, backup, plates */
+
+function goalCard() {
+  const goal = Number(state.settings.weeklyGoal) || 0;
+  if (!goal) return '';
+  const p = weekProgress(state.sessions, goal);
+
+  let msg;
+  if (p.remaining === 0) msg = `Goal hit — ${p.done} of ${goal} done.`;
+  else if (p.daysLeft <= 0) msg = `Week's up. ${p.done} of ${goal}.`;
+  else if (p.atRisk) msg = `${p.remaining} to go and only ${p.daysLeft} day${p.daysLeft === 1 ? '' : 's'} left.`;
+  else msg = `${p.remaining} to go, ${p.daysLeft} days left.`;
+
+  return `
+    <div class="card goal-card${p.atRisk ? ' at-risk' : ''}${p.remaining === 0 ? ' hit' : ''}">
+      ${progressRing(p.done, goal)}
+      <div class="grow">
+        <div class="card-title">This week</div>
+        <div class="card-sub">${esc(msg)}</div>
+      </div>
+    </div>`;
+}
+
+/* Local-only storage means a cleared browser wipes everything, so nag — but
+   gently, and only once there is something worth losing. */
+function backupBanner() {
+  if (state.sessions.length < 5) return '';
+
+  const snooze = state.settings.backupSnooze ? +new Date(state.settings.backupSnooze) : 0;
+  if (snooze && Date.now() - snooze < 7 * 86400000) return '';
+
+  const last = state.settings.lastExport ? new Date(state.settings.lastExport) : null;
+  const days = last ? Math.floor((Date.now() - +last) / 86400000) : null;
+  if (last && days < 30) return '';
+
+  return `
+    <div class="banner">
+      <div class="grow">
+        <strong>Back up your training</strong>
+        <div class="small">${last
+          ? `Last backup was ${days} days ago.`
+          : "You haven't exported a backup yet."} Everything lives on this device only.</div>
+      </div>
+      <div class="row">
+        <button class="btn" data-action="export">Export</button>
+        <button class="ghost" data-action="snooze-backup">Later</button>
+      </div>
+    </div>`;
+}
+
+function defaultBar() {
+  return state.settings.units === 'kg' ? 20 : 45;
+}
+
+function openPlateSheet(weight) {
+  const units = state.settings.units;
+  const bar = Number(state.settings.barWeight) || defaultBar();
+
+  openSheet('Plate calculator', `
+    <div class="row" style="align-items:flex-end;gap:10px">
+      <label class="field grow" style="margin:0">
+        <span>Target (${esc(units)})</span>
+        <input class="text" id="plate-target" type="number" inputmode="decimal" step="any" value="${esc(weight || '')}">
+      </label>
+      <label class="field grow" style="margin:0">
+        <span>Bar (${esc(units)})</span>
+        <input class="text" id="plate-bar" type="number" inputmode="decimal" step="any" value="${bar}">
+      </label>
+    </div>
+    <div id="plate-out" style="margin-top:16px"></div>`);
+
+  const draw = () => {
+    $('#plate-out').innerHTML = plateHtml(
+      Number($('#plate-target').value),
+      Number($('#plate-bar').value),
+      units,
+    );
+  };
+
+  $('#plate-target').addEventListener('input', draw);
+  $('#plate-bar').addEventListener('input', () => {
+    state.settings.barWeight = Number($('#plate-bar').value) || defaultBar();
+    save();
+    draw();
+  });
+  draw();
+}
+
+function plateHtml(target, bar, units) {
+  const res = plateBreakdown(target, bar, units);
+  if (!res.ok) {
+    return `<p class="muted small">${res.reason === 'under-bar'
+      ? `That's lighter than the bar itself.`
+      : 'Enter a target weight.'}</p>`;
+  }
+  if (!res.perSide.length) {
+    return '<p class="muted small">Just the bar.</p>';
+  }
+
+  return `
+    <p class="small muted" style="margin:0 0 10px">Per side</p>
+    <div class="plates">
+      ${res.perSide.map((p) => `
+        <span class="plate">${p.count} &times; ${p.plate}</span>`).join('')}
+    </div>
+    ${res.leftover > 0
+      ? `<p class="small" style="color:var(--warn);margin-top:12px">
+           ${res.leftover} ${esc(units)} per side can't be made from standard plates.
+         </p>`
+      : ''}`;
+}
+
+async function shareRecap() {
+  let blob;
+  try {
+    const canvas = buildRecapCanvas(state.sessions, state.settings.units);
+    blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+  } catch (err) {
+    console.error(err);
+  }
+  if (!blob) { toast('Could not build the image'); return; }
+
+  const file = new File([blob], 'wrk-week.png', { type: 'image/png' });
+
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file] });
+      return;
+    } catch (err) {
+      if (err && err.name === 'AbortError') return;   /* user dismissed the sheet */
+    }
+  }
+
+  /* Desktop and older browsers get a download instead. */
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'wrk-week.png';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  toast('Image saved');
+}
+
 /* ------------------------------------------------------------ workout view */
 
 function newSet(type) {
@@ -302,6 +458,8 @@ function renderWorkout() {
   if (!a) {
     action.hidden = true;
     el.innerHTML = `
+      ${backupBanner()}
+      ${goalCard()}
       <div class="empty">
         <h3>No workout in progress</h3>
         <p>Start from scratch, or load one of your routines.</p>
@@ -359,14 +517,27 @@ function renderEntry(entry) {
   const unit = state.settings.units === 'kg' ? 'Kg' : 'Lb';
   const cols = isCardio ? ['#', 'Distance', 'Min', '', ''] : ['#', unit, 'Reps', '', ''];
 
+  /* What you did last time is the reason to open the app mid-session, so it
+     sits directly above the inputs rather than behind a tap. */
+  const last = lastPerformance(state.sessions, entry.name);
+  const isPr = (state.active.prs || []).includes(entry.name);
+
   return `
   <div class="card ex ${isCardio ? 'cardio' : 'lifting'}" data-entry="${entry.id}">
     <div class="ex-head">
       <span class="ex-name">${esc(entry.name)}</span>
+      ${isPr ? '<span class="pill pr">PR</span>' : ''}
       <span class="pill ${isCardio ? 'cardio' : 'lifting'}">${isCardio ? 'cardio' : 'lifting'}</span>
       <div class="spacer"></div>
       <button class="icon-btn" data-action="remove-entry" data-id="${entry.id}" aria-label="Remove exercise">&times;</button>
     </div>
+
+    ${last ? `
+      <div class="lastline">
+        <span class="muted">Last time &middot; ${esc(last.date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }))}</span>
+        <b>${esc(summarizeSets(last, state.settings.units))}</b>
+        <button class="linkish" data-action="repeat-last" data-id="${entry.id}">Repeat</button>
+      </div>` : ''}
 
     <div class="set-grid">
       <div class="set-head">${cols.map((c) => `<div>${c}</div>`).join('')}</div>
@@ -386,8 +557,46 @@ function renderEntry(entry) {
 
     <div class="row" style="margin-top:10px">
       <button class="ghost small" data-action="add-set" data-id="${entry.id}">+ Set</button>
+      ${isCardio ? '' : `<button class="ghost small" data-action="plates" data-id="${entry.id}">Plates</button>`}
     </div>
   </div>`;
+}
+
+/**
+ * Announce a personal best when a completed set beats every previous session.
+ *
+ * Only fires when there is a previous best to beat — otherwise the first set
+ * you ever log would be a "record", which is noise. Announced once per
+ * exercise per workout, recorded on the session so it survives a reload.
+ */
+function checkPersonalRecord(entry, set, card) {
+  if (!entry || entry.type === 'cardio') return;
+  const weight = Number(set.weight);
+  const reps = Number(set.reps);
+  if (set.weight === '' || isNaN(weight) || weight <= 0) return;
+
+  state.active.prs = state.active.prs || [];
+  if (state.active.prs.includes(entry.name)) return;
+
+  const previousBest = bestE1rm(state.sessions, entry.name);
+  if (previousBest <= 0) return;
+
+  const value = e1rm(weight, isNaN(reps) ? 0 : reps);
+  if (value <= previousBest) return;
+
+  state.active.prs.push(entry.name);
+  save();
+  toast(`New best — ${entry.name} ${Math.round(value)} ${state.settings.units}`);
+  if (navigator.vibrate) navigator.vibrate([40, 60, 140]);
+
+  /* Insert the badge directly; a re-render here would drop typing focus. */
+  const head = card && card.querySelector('.ex-head');
+  if (head && !head.querySelector('.pill.pr')) {
+    const pill = document.createElement('span');
+    pill.className = 'pill pr';
+    pill.textContent = 'PR';
+    head.insertBefore(pill, head.querySelector('.pill'));
+  }
 }
 
 /* Refresh just the summary line — used after an in-place set toggle. */
@@ -943,7 +1152,10 @@ function renderData() {
   const hasCardio = cardioSeries.some((d) => d.value > 0);
 
   el.innerHTML = `
-    <div class="row" style="justify-content:center;margin-bottom:14px">
+    ${backupBanner()}
+    ${goalCard()}
+
+    <div class="row" style="justify-content:center;margin:14px 0">
       <div class="seg wrap">
         ${Object.entries(RANGES).map(([k, r]) => `
           <button data-action="data-range" data-val="${k}" class="${dataRange === k ? 'on' : ''}">${r.label}</button>`).join('')}
@@ -1036,7 +1248,11 @@ function renderData() {
       <div class="card-title">Most-trained exercises</div>
       <div class="card-sub">By sets logged</div>
       ${barRows(top, (v) => v)}
-    </div>` : ''}`;
+    </div>` : ''}
+
+    <button class="btn block secondary" data-action="share-week" style="margin-top:14px">
+      Share this week
+    </button>`;
 }
 
 function columnOrLine(points, unit) {
@@ -1072,6 +1288,16 @@ function renderSettings() {
         <input class="text" type="number" inputmode="numeric" min="0" max="600"
                data-setting="restSeconds" value="${st.restSeconds}">
       </label>
+      <label class="field">
+        <span>Workouts per week to aim for — 0 turns the goal off</span>
+        <input class="text" type="number" inputmode="numeric" min="0" max="14"
+               data-setting="weeklyGoal" value="${st.weeklyGoal}">
+      </label>
+      <label class="field" style="margin-bottom:0">
+        <span>Barbell weight (${esc(st.units)}), for the plate calculator</span>
+        <input class="text" type="number" inputmode="decimal" step="any" min="0"
+               data-setting="barWeight" value="${st.barWeight || defaultBar()}">
+      </label>
     </div>
 
     <div class="card">
@@ -1090,6 +1316,10 @@ function renderSettings() {
 }
 
 function exportData() {
+  state.settings.lastExport = new Date().toISOString();
+  delete state.settings.backupSnooze;
+  save();
+
   const payload = {
     version: state.version,
     settings: state.settings,
@@ -1289,13 +1519,14 @@ document.addEventListener('click', (ev) => {
     }
 
     case 'toggle-set': {
-      const { set } = findSet(card.dataset.entry, row.dataset.set);
+      const { entry, set } = findSet(card.dataset.entry, row.dataset.set);
       set.done = !set.done;
       save();
       /* Update in place instead of re-rendering, so typing focus isn't lost. */
       row.classList.toggle('done', set.done);
       btn.classList.toggle('on', set.done);
       updateSummary();
+      if (set.done) checkPersonalRecord(entry, set, card);
       if (set.done && state.settings.restSeconds > 0) startRest(state.settings.restSeconds);
       break;
     }
@@ -1464,6 +1695,49 @@ document.addEventListener('click', (ev) => {
       render();
       break;
 
+    /* ---- last time, plates, sharing, backup ---- */
+    case 'repeat-last': {
+      const entry = state.active.entries.find((e) => e.id === id);
+      const last = lastPerformance(state.sessions, entry.name);
+      if (!last) return;
+
+      const filled = entry.sets.some((s) => s.weight || s.reps || s.distance || s.minutes);
+      if (filled && !confirm("Replace what you've entered with last time's numbers?")) return;
+
+      entry.sets = last.sets.map((src) => {
+        const s = newSet(entry.type);
+        if (entry.type === 'cardio') {
+          s.distance = src.distance || '';
+          s.minutes = src.minutes || '';
+        } else {
+          s.weight = src.weight || '';
+          s.reps = src.reps || '';
+        }
+        return s;
+      });
+      save();
+      render();
+      break;
+    }
+
+    case 'plates': {
+      const entry = state.active.entries.find((e) => e.id === id);
+      /* Seed from the heaviest weight already typed into this exercise. */
+      const weights = entry ? entry.sets.map((s) => Number(s.weight)).filter((n) => n > 0) : [];
+      openPlateSheet(weights.length ? Math.max(...weights) : '');
+      break;
+    }
+
+    case 'share-week':
+      shareRecap();
+      break;
+
+    case 'snooze-backup':
+      state.settings.backupSnooze = new Date().toISOString();
+      save();
+      render();
+      break;
+
     /* ---- data ---- */
     case 'data-range':
       dataRange = btn.dataset.val;
@@ -1524,7 +1798,9 @@ document.addEventListener('input', (ev) => {
 
   if (el.dataset.setting) {
     const key = el.dataset.setting;
-    state.settings[key] = key === 'restSeconds' ? Math.max(0, Number(el.value) || 0) : el.value;
+    state.settings[key] = NUMERIC_SETTINGS.includes(key)
+      ? Math.max(0, Number(el.value) || 0)
+      : el.value;
     save();
   }
 });

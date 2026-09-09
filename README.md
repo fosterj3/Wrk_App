@@ -91,8 +91,8 @@ Then open <http://localhost:8080/>.
 | `sw.js` | Service worker for offline use |
 | `manifest.webmanifest` | Makes it installable as a PWA |
 | `fonts/` | Self-hosted Inter (variable woff2) plus its OFL licence |
-| `logo-mark.png` | The brand mark as an alpha silhouette, tinted by CSS |
-| `favicon-*.png`, `icons/` | Tab, Apple touch and home-screen icons |
+| `logo-mark-v2.png` | The brand mark as an alpha silhouette, tinted by CSS |
+|  `favicon-*-v2.png`, `icons/` | Tab, Apple touch and home-screen icons |
 | `tools/make-icons.html` | Regenerates every icon from the brand sheet |
 | `tools/serve.ps1` | Local static server for development |
 
@@ -109,9 +109,23 @@ have to stay in step:
 **Bump both to the same number on every release.** A changed `?v=` is a new URL, so the browser
 cannot serve a stale copy of it, and `ASSET_V` names the cache so the old one is dropped.
 
-The font files in `fonts/` and the brand images are the deliberate exception — no `?v=` on those. The filename is the
-version and the bytes never change, so versioning them would re-download 130KB on every release for
-nothing. They are still listed in the worker's shell so they are cached for offline use.
+The font files in `fonts/` and the brand images carry no `?v=`. **Their version lives in the
+filename instead**, so they are not re-downloaded on every release for nothing. They are still
+listed in the worker's shell so they are cached for offline use.
+
+That makes renaming them mandatory, not optional:
+
+> **When the artwork changes, change the filename** — `icon-192-v2.png` → `icon-192-v3.png` — and
+> update `manifest.webmanifest`, `sw.js`, `styles.css` and both HTML files.
+
+This is not tidiness. **An installed app's launcher icon is rasterised at install time**, and Chrome
+only replaces it when it notices the manifest pointing somewhere new — it compares icon URLs. Save
+over `icon-192.png` in place and the manifest is byte-identical, so every phone that already has the
+app keeps showing the old icon indefinitely. That is exactly what happened when the mark changed:
+the files on the server were correct, every phone was still displaying the dumbbell.
+
+Even with the rename, an already-installed app updates on Chrome's own schedule (roughly daily, and
+not guaranteed). **Uninstalling and reinstalling is the only way to see a new icon immediately.**
 
 The service worker also fetches with `cache: no-cache`, forcing a revalidation rather than trusting
 a `max-age` copy, and installs with `cache: reload` so it can never bake a stale file into a fresh
@@ -199,14 +213,14 @@ The brand sheet itself is gitignored, since it is artwork rather than source.
 
 ### One file, every background
 
-`logo-mark.png` is a white silhouette with an alpha channel, painted by CSS rather than baked into a
+`logo-mark-v2.png` is a white silhouette with an alpha channel, painted by CSS rather than baked into a
 coloured image:
 
 ```css
 .mark{
   background:var(--accent);
-  -webkit-mask:url(logo-mark.png) center/contain no-repeat;
-          mask:url(logo-mark.png) center/contain no-repeat;
+  -webkit-mask:url(logo-mark-v2.png) center/contain no-repeat;
+          mask:url(logo-mark-v2.png) center/contain no-repeat;
 }
 ```
 

@@ -155,8 +155,8 @@ input,select{font:inherit}
 .mark{
   display:inline-block;
   background:var(--accent);
-  -webkit-mask:url(logo-mark.png) center/contain no-repeat;
-  mask:url(logo-mark.png) center/contain no-repeat;
+  -webkit-mask:url(logo-mark-v2.png) center/contain no-repeat;
+  mask:url(logo-mark-v2.png) center/contain no-repeat;
 }
 .mark.on-accent{background:var(--accent-ink)}
 

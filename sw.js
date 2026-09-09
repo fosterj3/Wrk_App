@@ -3,7 +3,7 @@
    (landing) and app.html.
    The two must agree — that is what stops a new index.html from pairing with
    a stale app.js out of the browser's HTTP cache. */
-const ASSET_V = '26';
+const ASSET_V = '27';
 const CACHE = `cadence-v${ASSET_V}`;
 
 /* Same URLs the page actually requests, query string included, so the offline
@@ -21,13 +21,17 @@ const SHELL = [
   `./viz.js?v=${ASSET_V}`,
   `./app.js?v=${ASSET_V}`,
   './manifest.webmanifest',
-  './icons/icon-192.png',
-  './icons/icon-512.png',
-  /* Brand assets are versionless for the same reason as the fonts: the bytes
-     only change when the mark does, and then the filename would change too. */
-  './logo-mark.png',
-  './favicon-32.png',
-  './favicon-180.png',
+  './icons/icon-192-v2.png',
+  './icons/icon-512-v2.png',
+  /* Brand assets carry their version in the filename rather than a ?v=.
+     That is not cosmetic: an installed app's launcher icon is rasterised at
+     install time and only refreshed when Chrome notices the manifest changed,
+     and it compares icon URLs. Overwriting icon-192.png in place leaves the
+     manifest byte-identical, so the phone keeps showing the old icon forever.
+     CHANGE THE FILENAME whenever the artwork changes. */
+  './logo-mark-v2.png',
+  './favicon-32-v2.png',
+  './favicon-180-v2.png',
   /* No ?v= on the fonts: the filename is the version. They are content-stable,
      so re-downloading 130KB on every release would be waste. Cached here so
      the app looks the same offline as online. */

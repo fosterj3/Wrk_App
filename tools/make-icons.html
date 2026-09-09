@@ -94,20 +94,26 @@ img.onload = () => {
   const box = findMark(info, 0, 0, Math.round(info.w * 0.26), Math.round(info.h * 0.36));
   const m = matte(info, box, Math.round(Math.max(box.w, box.h) * 0.04));
 
+  /* BUMP THE -vN SUFFIX whenever the artwork or the tile colour changes, and
+     update the references in manifest.webmanifest, sw.js, styles.css and both
+     HTML files. An installed app's launcher icon is baked in at install time;
+     Chrome only replaces it when it sees the manifest point somewhere new. Save
+     over icon-192.png in place and every phone that already has the app keeps
+     showing the old one — which is exactly what happened once already. */
   const jobs = [
     /* Untinted silhouette. styles.css paints it through a CSS mask, so this
        one file covers every background the mark sits on. */
-    ['logo-mark.png',          tile(m, 160,  null,      '#ffffff', 0.02)],
-    ['favicon-32.png',         tile(m, 32,   '#311432', '#ffffff', 0.16)],
-    ['favicon-180.png',        tile(m, 180,  '#311432', '#ffffff', 0.20)],
-    ['icon-192.png',           tile(m, 192,  '#311432', '#ffffff', 0.20)],
-    ['icon-512.png',           tile(m, 512,  '#311432', '#ffffff', 0.20)],
-    ['icon-maskable-512.png',  tile(m, 512,  '#311432', '#ffffff', 0.28)],
+    ['logo-mark-v2.png',          tile(m, 160,  null,      '#ffffff', 0.02)],
+    ['favicon-32-v2.png',         tile(m, 32,   '#311432', '#ffffff', 0.16)],
+    ['favicon-180-v2.png',        tile(m, 180,  '#311432', '#ffffff', 0.20)],
+    ['icon-192-v2.png',           tile(m, 192,  '#311432', '#ffffff', 0.20)],
+    ['icon-512-v2.png',           tile(m, 512,  '#311432', '#ffffff', 0.20)],
+    ['icon-maskable-512-v2.png',  tile(m, 512,  '#311432', '#ffffff', 0.28)],
     /* The brand sheet's alternate, mark-on-dark. Not shipped: there is no
        manifest slot for a dark-mode icon. Note the mark here is the lifted
        accent, not #311432 — the brand purple on a dark tile is 1.19:1, i.e.
        not there at all. */
-    ['icon-dark-512.png',      tile(m, 512,  '#1A0A1B', '#9C4A9E', 0.20)],
+    ['icon-dark-512-v2.png',      tile(m, 512,  '#1A0A1B', '#9C4A9E', 0.20)],
   ];
 
   window.__icons = {};

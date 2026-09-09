@@ -2195,10 +2195,15 @@ function renderSettings() {
       <button class="btn block danger" data-action="wipe" style="margin-top:14px">Erase all data</button>
     </div>
 
-    <p class="small muted center" style="margin-top:18px">
-      ${state.sessions.length} workout${state.sessions.length === 1 ? '' : 's'} &middot;
-      ${state.routines.length} routine${state.routines.length === 1 ? '' : 's'}
-    </p>`;
+    <div class="brand-footer">
+      <span class="mark" aria-hidden="true"></span>
+      <span class="brand-name">Cadence</span>
+      <span class="brand-tag">Move forward</span>
+      <span class="small muted">
+        ${plural(state.sessions.length, 'workout')} &middot;
+        ${plural(state.routines.length, 'routine')}
+      </span>
+    </div>`;
 }
 
 /**

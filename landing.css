@@ -27,11 +27,20 @@ body.landing{
   background:
     radial-gradient(900px 380px at 15% -10%, var(--day-active), transparent 70%);
 }
-.brand{
-  display:flex;align-items:center;gap:12px;
-  font-size:20px;font-weight:700;letter-spacing:-0.01em;margin-bottom:40px;
+/* The lockup from the brand sheet: mark, wordmark, tagline underneath. The
+   wordmark is tracked out because CADENCE in caps at this size closes up
+   otherwise. */
+.brand{display:flex;align-items:center;gap:14px;margin-bottom:40px}
+.brand .mark{width:44px;height:44px;flex:none}
+.brand-words{display:flex;flex-direction:column;gap:2px}
+.brand-name{
+  font-size:22px;font-weight:800;letter-spacing:.06em;line-height:1;
+  text-transform:uppercase;
 }
-.brand img{border-radius:11px}
+.brand-tag{
+  font-size:10px;font-weight:600;letter-spacing:.22em;line-height:1;
+  text-transform:uppercase;color:var(--muted);
+}
 
 .hero h1{
   font-size:clamp(38px,8vw,60px);

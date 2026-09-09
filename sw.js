@@ -3,7 +3,7 @@
    (landing) and app.html.
    The two must agree — that is what stops a new index.html from pairing with
    a stale app.js out of the browser's HTTP cache. */
-const ASSET_V = '24';
+const ASSET_V = '25';
 const CACHE = `cadence-v${ASSET_V}`;
 
 /* Same URLs the page actually requests, query string included, so the offline
@@ -23,6 +23,11 @@ const SHELL = [
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png',
+  /* Brand assets are versionless for the same reason as the fonts: the bytes
+     only change when the mark does, and then the filename would change too. */
+  './logo-mark.png',
+  './favicon-32.png',
+  './favicon-180.png',
   /* No ?v= on the fonts: the filename is the version. They are content-stable,
      so re-downloading 130KB on every release would be waste. Cached here so
      the app looks the same offline as online. */

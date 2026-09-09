@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>brand extraction</title></head>
+<body style="background:#333;color:#eee;font:13px sans-serif;padding:12px">
+<div id="log">working…</div>
+<div id="preview"></div>
+<script>
+/* Pulls the mark out of the supplied brand sheet rather than re-drawing it by
+   hand, so what ships is the real artwork.
+ *
+ * The mark is flat purple on a flat light background, which means its coverage
+ * can be recovered exactly: alpha = how far each pixel is from the background.
+ * That gives an antialiased silhouette that can then be filled in any colour —
+ * purple on black, white on purple — from one source. */
+const SRC = '../brand-source.png';
+
+function analyse(img) {
+  const c = document.createElement('canvas');
+  c.width = img.width; c.height = img.height;
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(img, 0, 0);
+  return { ctx, w: img.width, h: img.height };
+}
+
+/* The primary lockup's mark sits alone in the top-left quadrant, so the purple
+   pixels there bound it without catching the wordmark. */
+function findMark({ ctx }, x0, y0, x1, y1) {
+  const d = ctx.getImageData(x0, y0, x1 - x0, y1 - y0).data;
+  let minX = 1e9, minY = 1e9, maxX = -1, maxY = -1;
+  for (let y = 0; y < y1 - y0; y++) {
+    for (let x = 0; x < x1 - x0; x++) {
+      const i = (y * (x1 - x0) + x) * 4;
+      const r = d[i], g = d[i + 1], b = d[i + 2];
+      /* Purple: blue clearly dominant and the pixel is not near-white. */
+      if (b > 120 && b - g > 50 && r < 200) {
+        if (x < minX) minX = x; if (x > maxX) maxX = x;
+        if (y < minY) minY = y; if (y > maxY) maxY = y;
+      }
+    }
+  }
+  return { x: x0 + minX, y: y0 + minY, w: maxX - minX + 1, h: maxY - minY + 1 };
+}
+
+/* Background is near-white, mark is saturated purple, so luminance inverts
+   straight into coverage. Anything the mark did not touch lands at alpha 0. */
+function matte({ ctx }, box, pad) {
+  const d = ctx.getImageData(box.x, box.y, box.w, box.h).data;
+  const side = Math.max(box.w, box.h) + pad * 2;
+  const out = document.createElement('canvas');
+  out.width = out.height = side;
+  const octx = out.getContext('2d');
+  const img = octx.createImageData(box.w, box.h);
+  for (let i = 0; i < d.length; i += 4) {
+    const lum = (0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]) / 255;
+    /* 0.97 is the sheet's paper white; clamp so faint JPEG-ish noise in the
+       background does not become a grey haze. */
+    const a = Math.max(0, Math.min(1, (0.97 - lum) / 0.72));
+    img.data[i] = img.data[i + 1] = img.data[i + 2] = 255;
+    img.data[i + 3] = Math.round(a * 255);
+  }
+  const tmp = document.createElement('canvas');
+  tmp.width = box.w; tmp.height = box.h;
+  tmp.getContext('2d').putImageData(img, 0, 0);
+  octx.drawImage(tmp, pad + (side - pad * 2 - box.w) / 2, pad + (side - pad * 2 - box.h) / 2);
+  return out;
+}
+
+/* Tint the silhouette and sit it on a tile. */
+function tile(matteCanvas, size, bg, fg, inset) {
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const ctx = c.getContext('2d');
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  if (bg) { ctx.fillStyle = bg; ctx.fillRect(0, 0, size, size); }
+
+  const inner = size * (1 - inset * 2);
+  const m = document.createElement('canvas');
+  m.width = m.height = inner;
+  const mc = m.getContext('2d');
+  mc.imageSmoothingQuality = 'high';
+  mc.drawImage(matteCanvas, 0, 0, inner, inner);
+  mc.globalCompositeOperation = 'source-in';
+  mc.fillStyle = fg;
+  mc.fillRect(0, 0, inner, inner);
+
+  ctx.drawImage(m, size * inset, size * inset);
+  return c;
+}
+
+const img = new Image();
+img.onload = () => {
+  const info = analyse(img);
+  /* Top-left quadrant, above the "logo variations" row. */
+  const box = findMark(info, 0, 0, Math.round(info.w * 0.26), Math.round(info.h * 0.36));
+  const m = matte(info, box, Math.round(Math.max(box.w, box.h) * 0.04));
+
+  const jobs = [
+    /* Untinted silhouette. styles.css paints it through a CSS mask, so this
+       one file covers every background the mark sits on. */
+    ['logo-mark.png',          tile(m, 160,  null,      '#ffffff', 0.02)],
+    ['favicon-32.png',         tile(m, 32,   '#6F3CFF', '#ffffff', 0.16)],
+    ['favicon-180.png',        tile(m, 180,  '#6F3CFF', '#ffffff', 0.20)],
+    ['icon-192.png',           tile(m, 192,  '#6F3CFF', '#ffffff', 0.20)],
+    ['icon-512.png',           tile(m, 512,  '#6F3CFF', '#ffffff', 0.20)],
+    ['icon-maskable-512.png',  tile(m, 512,  '#6F3CFF', '#ffffff', 0.28)],
+    /* The brand sheet's alternate, purple-on-black. Not shipped: there is no
+       manifest slot for a dark-mode icon. Left here because it is one line. */
+    ['icon-dark-512.png',      tile(m, 512,  '#0B0B0F', '#6F3CFF', 0.20)],
+  ];
+
+  window.__icons = {};
+  const out = document.getElementById('preview');
+  for (const [name, canvas] of jobs) {
+    const url = canvas.toDataURL('image/png');
+    window.__icons[name] = url;
+    out.insertAdjacentHTML('beforeend',
+      `<figure style="display:inline-block;margin:8px;text-align:center">
+         <img src="${url}" width="120" height="120" style="background:#888;border-radius:8px">
+         <figcaption>${name}</figcaption>
+       </figure>`);
+  }
+  document.getElementById('log').textContent =
+    `source ${info.w}x${info.h} · mark box ${box.x},${box.y} ${box.w}x${box.h}`;
+  window.__box = box;
+  window.__iconsReady = true;
+};
+img.onerror = () => { document.getElementById('log').textContent = 'could not load ' + SRC; };
+img.src = SRC;
+</script>
+</body></html>

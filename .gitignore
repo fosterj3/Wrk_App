@@ -10,3 +10,6 @@ Thumbs.db
 wrk-backup-*.json
 cadence-backup-*.json
 cadence-workouts-*.csv
+# The supplied brand sheet. Kept out of the repo (it is artwork, not source);
+# tools/make-icons.html reads it to regenerate the icons.
+brand-source.png

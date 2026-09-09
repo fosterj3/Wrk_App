@@ -37,14 +37,14 @@
 :root{
   color-scheme:dark;
 
-  --bg:#08060c;                /* near-black */
+  --bg:#0B0B0F;                /* brand black */
   --surface:#130f1c;
   --surface-2:#1d1730;
   --line:#312748;
   --text:#ffffff;
   --muted:#a99ec4;
 
-  --accent:#7c3aed;            /* royal purple, as a fill */
+  --accent:#6F3CFF;            /* brand royal purple, as a fill */
   --accent-ink:#ffffff;        /* text sitting on --accent */
   --accent-fg:#b79cff;         /* purple as text, readable on --bg */
 
@@ -92,7 +92,7 @@
   --text:#111111;
   --muted:#5f5a50;
 
-  --accent:#6d28d9;
+  --accent:#6F3CFF;            /* the brand purple holds AA on white text */
   --accent-ink:#ffffff;
   --accent-fg:#5b21b6;
 
@@ -137,6 +137,18 @@ button{font:inherit;color:inherit;cursor:pointer}
 /* The hidden attribute must beat the layout rules below (.sheet uses flex). */
 [hidden]{display:none !important}
 input,select{font:inherit}
+
+/* The brand mark, carried as an alpha silhouette and painted by CSS rather
+   than baked into a coloured image. One file then serves purple-on-black,
+   purple-on-cream and white-on-purple, and it follows the theme token instead
+   of needing a copy per background. */
+.mark{
+  display:inline-block;
+  background:var(--accent);
+  -webkit-mask:url(logo-mark.png) center/contain no-repeat;
+  mask:url(logo-mark.png) center/contain no-repeat;
+}
+.mark.on-accent{background:var(--accent-ink)}
 
 /* ---------- top bar ---------- */
 .topbar{
@@ -616,3 +628,20 @@ select.text.slim{width:auto;flex:1;min-width:150px;padding:8px 10px;font-size:13
   background:none;border:0;padding:2px 4px;
   color:var(--accent-fg);font-weight:700;font-size:14px;
 }
+
+/* Sign-off at the foot of Settings — the one place the mark and the tagline
+   appear inside the app itself, where they read as a signature rather than
+   as chrome competing with the workout in front of you. */
+.brand-footer{
+  display:flex;flex-direction:column;align-items:center;gap:6px;
+  margin-top:26px;padding-top:22px;border-top:1px solid var(--line);
+}
+.brand-footer .mark{width:30px;height:30px}
+.brand-footer .brand-name{
+  font-size:14px;font-weight:800;letter-spacing:.10em;text-transform:uppercase;line-height:1;
+}
+.brand-footer .brand-tag{
+  font-size:9px;font-weight:600;letter-spacing:.24em;text-transform:uppercase;
+  color:var(--muted);line-height:1;
+}
+.brand-footer .small{margin-top:6px}

@@ -3,10 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#08060c">
+<meta name="theme-color" content="#0B0B0F">
 <meta name="description" content="Cadence is a workout log that starts from the notes you already keep. Paste your routine, log the work, see the pattern. Free, private, works offline.">
 <title>Cadence — log the work, see the pattern</title>
-<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="favicon-180.png">
 <link rel="manifest" href="manifest.webmanifest">
 <script>
   /* Launched from the home screen? Skip the pitch, go straight to the app. */
@@ -29,16 +30,19 @@
 <!-- See app.html: in flight before the CSS is parsed, and crossorigin because
      fonts are always fetched in CORS mode. -->
 <link rel="preload" href="fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="styles.css?v=24">
-<link rel="stylesheet" href="landing.css?v=24">
+<link rel="stylesheet" href="styles.css?v=25">
+<link rel="stylesheet" href="landing.css?v=25">
 </head>
 <body class="landing">
 
 <header class="hero">
   <div class="wrap">
     <div class="brand">
-      <img src="icons/icon-192.png" alt="" width="44" height="44">
-      <span>Cadence</span>
+      <span class="mark" aria-hidden="true"></span>
+      <span class="brand-words">
+        <span class="brand-name">Cadence</span>
+        <span class="brand-tag">Move forward</span>
+      </span>
     </div>
 
     <h1>Log the work.<br>See the pattern.</h1>
@@ -197,7 +201,7 @@ Treadmill 20 min</pre>
   </p>
 </footer>
 
-<script src="util.js?v=24"></script>
+<script src="util.js?v=25"></script>
 <script>
   /* Someone with a log already doesn't need the sales pitch on the button. */
   (function () {

@@ -91,6 +91,9 @@ Then open <http://localhost:8080/>.
 | `sw.js` | Service worker for offline use |
 | `manifest.webmanifest` | Makes it installable as a PWA |
 | `fonts/` | Self-hosted Inter (variable woff2) plus its OFL licence |
+| `logo-mark.png` | The brand mark as an alpha silhouette, tinted by CSS |
+| `favicon-*.png`, `icons/` | Tab, Apple touch and home-screen icons |
+| `tools/make-icons.html` | Regenerates every icon from the brand sheet |
 | `tools/serve.ps1` | Local static server for development |
 
 ### Releasing a change
@@ -106,7 +109,7 @@ have to stay in step:
 **Bump both to the same number on every release.** A changed `?v=` is a new URL, so the browser
 cannot serve a stale copy of it, and `ASSET_V` names the cache so the old one is dropped.
 
-The font files in `fonts/` are the deliberate exception — no `?v=` on those. The filename is the
+The font files in `fonts/` and the brand images are the deliberate exception — no `?v=` on those. The filename is the
 version and the bytes never change, so versioning them would re-download 130KB on every release for
 nothing. They are still listed in the worker's shell so they are cached for offline use.
 
@@ -160,6 +163,84 @@ Days are coloured by what kind of session it was:
 
 Today is circled, the selected day is outlined, and paging between months or weeks moves the
 selection with you so the panel underneath always describes something you can see.
+
+
+## The brand
+
+Logo, wordmark, tagline and palette come from a supplied brand sheet. The typeface it specifies —
+**Inter** — was already in use, so that part needed nothing.
+
+| | |
+| --- | --- |
+| Royal Purple | `#6F3CFF` |
+| Black | `#0B0B0F` |
+| Typeface | Inter |
+| Tagline | Move forward |
+
+### The mark is extracted, not redrawn
+
+The mark is a pair of interlocking angular blades forming a **C**. It was supplied as a raster brand
+sheet, and an early attempt to rebuild it as SVG by hand produced something in the right spirit but
+visibly not the same shape — a logo that is *nearly* right is worse than no logo.
+
+So `tools/make-icons.html` reads the sheet and lifts the artwork out of it. The mark is flat purple
+on flat paper, which means its coverage can be recovered exactly rather than guessed:
+
+```
+alpha = clamp((0.97 − luminance) / 0.72)
+```
+
+That yields an antialiased **silhouette**, which is then tinted and tiled to produce every asset.
+One extraction, several outputs, all pixel-faithful to what was supplied.
+
+Run it by opening `tools/make-icons.html` with `brand-source.png` in the repo root — it renders the
+set and downloads them. It is a build tool, not part of the app; nothing at runtime depends on it.
+The brand sheet itself is gitignored, since it is artwork rather than source.
+
+### One file, every background
+
+`logo-mark.png` is a white silhouette with an alpha channel, painted by CSS rather than baked into a
+coloured image:
+
+```css
+.mark{
+  background:var(--accent);
+  -webkit-mask:url(logo-mark.png) center/contain no-repeat;
+          mask:url(logo-mark.png) center/contain no-repeat;
+}
+```
+
+So the same 12KB file serves purple-on-black, purple-on-cream and white-on-purple, and it follows
+the theme token instead of needing a copy per background.
+
+### Where it appears
+
+- **Landing page** — the full lockup: mark, wordmark, tagline beneath.
+- **Settings, at the foot** — the same lockup, small, above the workout count. Deliberately the only
+  place the brand appears *inside* the app; a logo in the top bar during a workout is chrome
+  competing with the set in front of you.
+- **Icons** — home screen, favicon, Apple touch icon. White mark on the brand purple, matching the
+  "light icon" on the sheet. The maskable icon gets a bigger inset because Android can crop to a
+  circle inscribed in the middle 80%, and a mark drawn to the edges loses its terminals.
+
+The tagline sits in the lockup rather than replacing the page headline. **"Move forward"** says what
+Cadence is *for*; **"Log the work. See the pattern."** says what it *does*, which is the job of the
+first thing a stranger reads.
+
+### What changed in the palette
+
+The accent moved from `#7c3aed` to the brand's `#6F3CFF`, and the dark background from `#08060c` to
+`#0B0B0F`. Both themes were re-measured afterwards rather than assumed:
+
+| Pair | Dark | Light |
+| --- | --- | --- |
+| Body text on background | 19.6:1 | 17.0:1 |
+| Muted text on background | 7.8:1 | 6.2:1 |
+| **White on the brand purple** | **5.6:1** | **5.6:1** |
+| Purple text on background | 8.6:1 | 8.1:1 |
+
+Everything clears AA. White on `#6F3CFF` is the tightest at 5.58:1 against a 4.5:1 floor, which is
+worth knowing before anyone drops the button text below normal size.
 
 ## Theming
 

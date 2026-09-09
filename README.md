@@ -26,7 +26,7 @@ installed copy, so only the product name changed.
 - **Calendar** — month and week views showing which days you trained, colour-coded by what you did. Tap any day to see that day's workouts, log one you forgot to record, or delete one.
 - **Bodyweight** — log your weight, see a 7-day rolling average against a goal.
 - **Data** — charts for how often you train, what kind, your strength progression per exercise, weekly volume and cardio, and your most-trained lifts.
-- **Dark and light themes** — royal purple on black, or purple on warm off-white. Follows your phone's setting on first run; switch it any time in Settings.
+- **Dark and light themes** — deep plum throughout, or plum on warm off-white. Follows your phone's setting on first run; switch it any time in Settings.
 - **Works offline** — a service worker caches the app, so it runs in the gym with no signal.
 
 ## Installing it on your phone
@@ -172,8 +172,8 @@ Logo, wordmark, tagline and palette come from a supplied brand sheet. The typefa
 
 | | |
 | --- | --- |
-| Royal Purple | `#6F3CFF` |
-| Black | `#0B0B0F` |
+| Purple | `#311432` |
+| Plum floor (dark theme background) | `#1A0A1B` |
 | Typeface | Inter |
 | Tagline | Move forward |
 
@@ -227,20 +227,51 @@ The tagline sits in the lockup rather than replacing the page headline. **"Move 
 Cadence is *for*; **"Log the work. See the pattern."** says what it *does*, which is the job of the
 first thing a stranger reads.
 
-### What changed in the palette
+### #311432 is a background, not a fill
 
-The accent moved from `#7c3aed` to the brand's `#6F3CFF`, and the dark background from `#08060c` to
-`#0B0B0F`. Both themes were re-measured afterwards rather than assumed:
+The brand purple is `h298 s43% l14%` — a deep, muted plum. At 14% lightness it is **as dark as a
+dark-mode background**, which decides where it can be used:
+
+| `#311432` used as… | |
+| --- | --- |
+| Text colour behind white | 16.5:1 — excellent |
+| A button on the light cream background | 14.8:1 — excellent |
+| A button on a near-black background | **1.19:1 — invisible** |
+
+A control needs about 3:1 to be seen at all, so on a black background this colour cannot be a fill.
+Rather than lighten the brand colour, the **dark theme was rebuilt around it**: the floor is a
+darker plum, cards *are* `#311432`, and only the elements that must rise above them — buttons,
+chart marks — use a lifted plum. The theme reads as one colour instead of purple on grey.
+
+```
+dark   bg #1A0A1B  ·  surface #251126  ·  card #311432  ·  button #9C4A9E
+light  bg #f5f3ed  ·  surface #ffffff  ·  button #311432
+```
+
+Light mode is where the brand colour works untouched, so it is the accent there directly.
+
+### Everything was re-measured
 
 | Pair | Dark | Light |
 | --- | --- | --- |
-| Body text on background | 19.6:1 | 17.0:1 |
-| Muted text on background | 7.8:1 | 6.2:1 |
-| **White on the brand purple** | **5.6:1** | **5.6:1** |
-| Purple text on background | 8.6:1 | 8.1:1 |
+| Body text on background | 19.0:1 | 17.0:1 |
+| Muted text on background | 8.5:1 | 6.2:1 |
+| Button label on button | 5.4:1 | 16.5:1 |
+| Button against background (needs 3) | 3.5:1 | 14.8:1 |
+| Purple text on background | 10.2:1 | 8.5:1 |
 
-Everything clears AA. White on `#6F3CFF` is the tightest at 5.58:1 against a 4.5:1 floor, which is
-worth knowing before anyone drops the button text below normal size.
+Two things the plum broke, both found by measuring rather than looking:
+
+- **The lifting series merged with the cardio amber under tritanopia** (ΔE 7.2, floor 12). The old
+  series colour was a blue-violet, which separated on the blue-yellow axis that tritans lose; a plum
+  does not. Ten replacement plums were swept and *all* failed — the binding constraint was the
+  amber, not the purple. Brightening cardio to `#E8A020` restores it at ΔE 20.9.
+- **White calendar chips on the light-mode amber were 3.19:1.** Pre-existing rather than caused by
+  the plum, but it is 9.5px text and it was found while re-checking, so it was fixed by darkening
+  that amber to `#A45A06`.
+
+Both palettes now clear every check: AA on all text pairs, 3:1 on all controls, and ΔE ≥ 12 between
+every pair of series colours under normal, protan, deutan and tritan vision.
 
 ## Theming
 
@@ -248,8 +279,8 @@ Two themes, switched in Settings → Appearance:
 
 | | Background | Accent | Text |
 | --- | --- | --- | --- |
-| Dark | Near-black `#08060c` | Royal purple `#7c3aed` | White |
-| Light | Warm off-white `#f5f3ed` | Purple `#6d28d9` | Black, white on purple |
+| Dark | Deep plum `#1A0A1B` | Lifted plum `#9C4A9E` | White |
+| Light | Warm off-white `#f5f3ed` | Brand plum `#311432` | Black, white on plum |
 
 On first run it follows the phone's own light/dark setting; after that your choice sticks.
 
@@ -346,13 +377,14 @@ in both themes:
 
 | | Lifting | Cardio | Both |
 | --- | --- | --- | --- |
-| Dark | `#8b5cf6` | `#c98500` | `#199e70` |
-| Light | `#6d28d9` | `#d97706` | `#166534` |
+| Dark | `#C169C3` | `#E8A020` | `#199e70` |
+| Light | `#6B2E6D` | `#A45A06` | `#166534` |
 
 These are also the calendar's dot colours — one meaning, one colour, app-wide. If you change them,
-re-run the validator rather than eyeballing; the first attempt failed on two counts (dark amber and
-green sat outside the dark lightness band, and light amber/green collapsed to ΔE 6.8 under
-protanopia, where 8 is the target).
+re-run the validator rather than eyeballing. Every attempt so far has failed on the first pass:
+dark amber and green once sat outside the lightness band; light amber/green collapsed to ΔE 6.8
+under protanopia; and moving lifting to a plum for the brand merged it with the cardio amber under
+tritanopia, which took a change to the *amber* to fix — see the brand section.
 
 Note that SVG marks need `fill`, not `background` — the `.k-lifting` class that colours an HTML
 legend swatch will render an SVG path **black**.

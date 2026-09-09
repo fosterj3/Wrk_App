@@ -37,16 +37,22 @@
 :root{
   color-scheme:dark;
 
-  --bg:#0B0B0F;                /* brand black */
-  --surface:#130f1c;
-  --surface-2:#1d1730;
-  --line:#312748;
+  /* A plum ramp built out from the brand purple #311432 rather than a neutral
+     black. The brand colour sits at surface-2 — the raised card — because at
+     14% lightness it is a background, not a fill: on near-black it measured
+     1.19:1, which is invisible. Everything above it in the stack is the same
+     hue lifted, so the theme reads as one colour rather than purple on grey. */
+  --bg:#1A0A1B;                /* deep plum, the floor */
+  --surface:#251126;
+  --surface-2:#311432;         /* the brand purple, exactly */
+  --line:#4A2249;
   --text:#ffffff;
-  --muted:#a99ec4;
+  --muted:#BCA6BD;
 
-  --accent:#6F3CFF;            /* brand royal purple, as a fill */
+  /* Lifted well clear of the surfaces so a button still reads as a button. */
+  --accent:#9C4A9E;
   --accent-ink:#ffffff;        /* text sitting on --accent */
-  --accent-fg:#b79cff;         /* purple as text, readable on --bg */
+  --accent-fg:#E3ABE5;         /* plum as text, readable on --bg */
 
   --good:#3ddc84;
   --good-ink:#04240f;
@@ -55,15 +61,15 @@
   --danger-ink:#2b0708;      /* white on this red is only 2.8:1 */
   --tip-ink:#ffffff;
 
-  --chip-ink:#0b0714;
+  --chip-ink:#1A0A1B;
   --scrim:rgba(0,0,0,.6);
-  --tabbar-bg:rgba(19,15,28,.93);
-  --day-active:#241c3c;
+  --tabbar-bg:rgba(37,17,38,.93);
+  --day-active:#3D1B3E;
 
   --done-bg:#0f2418;
   --done-line:#1f5137;
 
-  --pill-lift-line:#3b2a63;
+  --pill-lift-line:#5A2A5C;
   --pill-cardio-line:#4a3a1a;
 
   --warnbox-bg:#241d0e;
@@ -92,9 +98,13 @@
   --text:#111111;
   --muted:#5f5a50;
 
-  --accent:#6F3CFF;            /* the brand purple holds AA on white text */
+  /* Light mode is where the brand purple works untouched: 14.8:1 against the
+     cream, and white on it is 16.5:1. */
+  --accent:#311432;
   --accent-ink:#ffffff;
-  --accent-fg:#5b21b6;
+  /* Purple-as-text is lifted off #311432, which at this size would be
+     indistinguishable from the near-black body text. */
+  --accent-fg:#6B2E6D;
 
   --good:#15803d;
   --good-ink:#ffffff;
@@ -104,14 +114,14 @@
   --tip-ink:#ffffff;
 
   --chip-ink:#ffffff;
-  --scrim:rgba(30,24,45,.35);
+  --scrim:rgba(35,15,36,.38);
   --tabbar-bg:rgba(255,255,255,.94);
-  --day-active:#efe9fb;        /* a purple tint so trained days still pop */
+  --day-active:#EFE2EF;        /* a plum tint so trained days still pop */
 
   --done-bg:#e8f5ec;
   --done-line:#8fc7a5;
 
-  --pill-lift-line:#cfc0ee;
+  --pill-lift-line:#D5BDD6;
   --pill-cardio-line:#e2c9a3;
 
   --warnbox-bg:#fdf3e0;
@@ -405,21 +415,21 @@ textarea.text:focus{outline:2px solid var(--accent);outline-offset:-1px}
    Series colours are validated as a set — see viz.js. Marks wear the series
    colour; text always wears a text token, never a series hue. */
 :root{
-  --series-lift:#8b5cf6;
-  --series-cardio:#c98500;
+  --series-lift:#C169C3;
+  --series-cardio:#E8A020;   /* brightened: the plum lift and the old amber merged under tritanopia */
   --series-mixed:#199e70;
-  --viz-grid:#241d38;
-  --viz-dim:#3a3252;
-  --viz-area:rgba(139,92,246,.14);
-  --viz-tip-bg:#241c3c;
+  --viz-grid:#3A1C3B;
+  --viz-dim:#543054;
+  --viz-area:rgba(193,105,195,.14);
+  --viz-tip-bg:#3D1B3E;
 }
 :root[data-theme="light"]{
-  --series-lift:#6d28d9;
-  --series-cardio:#d97706;
+  --series-lift:#6B2E6D;
+  --series-cardio:#A45A06;   /* darkened: white chip labels were 3.2:1 on the old amber */
   --series-mixed:#166534;
   --viz-grid:#e5e1d6;
   --viz-dim:#cbc5b6;
-  --viz-area:rgba(109,40,217,.10);
+  --viz-area:rgba(107,46,109,.10);
   --viz-tip-bg:#241c3c;
 }
 

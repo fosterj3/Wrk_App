@@ -98,14 +98,16 @@ img.onload = () => {
     /* Untinted silhouette. styles.css paints it through a CSS mask, so this
        one file covers every background the mark sits on. */
     ['logo-mark.png',          tile(m, 160,  null,      '#ffffff', 0.02)],
-    ['favicon-32.png',         tile(m, 32,   '#6F3CFF', '#ffffff', 0.16)],
-    ['favicon-180.png',        tile(m, 180,  '#6F3CFF', '#ffffff', 0.20)],
-    ['icon-192.png',           tile(m, 192,  '#6F3CFF', '#ffffff', 0.20)],
-    ['icon-512.png',           tile(m, 512,  '#6F3CFF', '#ffffff', 0.20)],
-    ['icon-maskable-512.png',  tile(m, 512,  '#6F3CFF', '#ffffff', 0.28)],
-    /* The brand sheet's alternate, purple-on-black. Not shipped: there is no
-       manifest slot for a dark-mode icon. Left here because it is one line. */
-    ['icon-dark-512.png',      tile(m, 512,  '#0B0B0F', '#6F3CFF', 0.20)],
+    ['favicon-32.png',         tile(m, 32,   '#311432', '#ffffff', 0.16)],
+    ['favicon-180.png',        tile(m, 180,  '#311432', '#ffffff', 0.20)],
+    ['icon-192.png',           tile(m, 192,  '#311432', '#ffffff', 0.20)],
+    ['icon-512.png',           tile(m, 512,  '#311432', '#ffffff', 0.20)],
+    ['icon-maskable-512.png',  tile(m, 512,  '#311432', '#ffffff', 0.28)],
+    /* The brand sheet's alternate, mark-on-dark. Not shipped: there is no
+       manifest slot for a dark-mode icon. Note the mark here is the lifted
+       accent, not #311432 — the brand purple on a dark tile is 1.19:1, i.e.
+       not there at all. */
+    ['icon-dark-512.png',      tile(m, 512,  '#1A0A1B', '#9C4A9E', 0.20)],
   ];
 
   window.__icons = {};

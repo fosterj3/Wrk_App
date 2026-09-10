@@ -16,6 +16,9 @@ const DEFAULTS = {
     units: 'lb', restSeconds: 90, calendarView: 'month', theme: null,
     weeklyGoal: 3, barWeight: 45, lastExport: null, backupSnooze: null,
     alertSound: 'beep', alertVolume: 0.9, keepAwake: true,
+    /* null = never offered. Set once the walkthrough is finished or skipped,
+       so it introduces itself exactly once and afterwards only on request. */
+    tourDone: null,
   },
   routines: [],
   weights: [],          /* bodyweight log: [{ id, date, value }] */
@@ -394,6 +397,186 @@ function go(view) {
   $$('.view').forEach((v) => { v.hidden = v.id !== `view-${view}`; });
   $('#topbar-title').textContent = TITLES[view];
   render();
+}
+
+/* ------------------------------------------------------------------- tour */
+
+const tour = { active: false, index: 0, steps: [], lifted: null, onTarget: null };
+
+/**
+ * Offered once, on a genuinely empty app.
+ *
+ * Existing installs are marked as done rather than shown the tour: someone
+ * with six months of logs does not need telling where the Workout tab is, and
+ * a walkthrough appearing over their history would read as a bug.
+ */
+function maybeOfferTour() {
+  if (state.settings.tourDone !== null) return;
+  const fresh = !state.sessions.length && !state.routines.length && !state.active;
+  if (!fresh) { state.settings.tourDone = true; save(); return; }
+  startTour();
+}
+
+function startTour() {
+  closeSheet();
+
+  /* Each step is tested on the tab it belongs to, because a target on the
+     Routines tab does not exist while the Workout tab is rendered — filtering
+     against the current screen alone silently dropped half the tour. go() and
+     render() are synchronous, so this whole sweep happens inside one frame and
+     never paints. */
+  const startView = currentView;
+  tour.steps = usableSteps(TOUR_STEPS, (sel, step) => {
+    if (step.view && currentView !== step.view) go(step.view);
+    return document.querySelector(sel);
+  });
+  go(startView);
+
+  if (!tour.steps.length) return;
+  tour.active = true;
+  tour.index = 0;
+  showTourStep();
+}
+
+function showTourStep() {
+  const step = tour.steps[tour.index];
+  if (!step) { endTour(true); return; }
+
+  clearTourTarget();
+
+  /* Switching tabs re-renders, so the target only exists after go(). */
+  if (step.view && currentView !== step.view) go(step.view);
+
+  /* A turn of the event loop for layout to settle before measuring.
+     Deliberately not requestAnimationFrame: rAF is suspended while a tab is
+     in the background, which would leave the tour started but never drawn.
+     getBoundingClientRect is accurate either way. */
+  setTimeout(() => {
+    if (!tour.active) return;
+    paintTourStep(step);
+  }, 0);
+}
+
+function paintTourStep(step) {
+  const scrim = $('#tour');
+  const spot = $('#tour-spot');
+  const bubble = $('#tour-bubble');
+  const target = step.target ? document.querySelector(step.target) : null;
+
+  scrim.hidden = false;
+  
+
+  const last = tour.index === tour.steps.length - 1;
+  bubble.innerHTML = `
+    <div class="tour-count">${tour.index + 1} of ${tour.steps.length}</div>
+    <h3 id="tour-title">${esc(step.title)}</h3>
+    <p>${esc(step.body)}</p>
+    <div class="tour-actions">
+      <button class="linkish" data-action="tour-end">${last ? '' : 'Skip'}</button>
+      <div class="spacer"></div>
+      ${tour.index > 0 ? '<button class="ghost small" data-action="tour-prev">Back</button>' : ''}
+      <button class="btn small" data-action="tour-next">${last ? 'Get started' : 'Next'}</button>
+    </div>`;
+
+  if (!target) {
+    /* No anchor: centre it and hide the ring rather than pointing at nothing. */
+    spot.hidden = true;
+    bubble.classList.add('centered');
+    bubble.removeAttribute('style');
+  } else {
+    spot.hidden = false;
+    bubble.classList.remove('centered');
+
+    const r = target.getBoundingClientRect();
+    const pad = 6;
+    spot.style.top = `${r.top - pad}px`;
+    spot.style.left = `${r.left - pad}px`;
+    spot.style.width = `${r.width + pad * 2}px`;
+    spot.style.height = `${r.height + pad * 2}px`;
+
+    /* Anything with its own stacking context has to rise as a whole — a tab
+       button cannot be lifted out of the tab bar's backdrop-filter. */
+    const lift = step.lift ? document.querySelector(step.lift) : target;
+    if (lift) { lift.classList.add('tour-above'); tour.lifted = lift; }
+
+    /* Tapping the highlighted control moves the tour along, so following the
+       instruction and pressing Next amount to the same thing. */
+    tour.onTarget = () => { if (tour.active) nextTourStep(); };
+    target.addEventListener('click', tour.onTarget, { once: true });
+    tour.targetEl = target;
+
+    const box = bubble.getBoundingClientRect();
+    const at = placeBubble(r, { width: box.width, height: box.height },
+      { width: window.innerWidth, height: window.innerHeight });
+    bubble.style.top = `${at.top}px`;
+    bubble.style.left = `${at.left}px`;
+  }
+
+  bubble.focus();
+}
+
+/* The ring is positioned from a viewport-relative rect, so it has to follow
+   the target when the page moves under it. Cheap enough to run on every scroll
+   frame: one measurement and two style writes. */
+function repositionTour() {
+  if (!tour.active || !tour.targetEl) return;
+  const step = tour.steps[tour.index];
+  const spot = $('#tour-spot');
+  const bubble = $('#tour-bubble');
+  const r = tour.targetEl.getBoundingClientRect();
+  const pad = 6;
+  spot.style.top = `${r.top - pad}px`;
+  spot.style.left = `${r.left - pad}px`;
+  spot.style.width = `${r.width + pad * 2}px`;
+  spot.style.height = `${r.height + pad * 2}px`;
+  const box = bubble.getBoundingClientRect();
+  const at = placeBubble(r, { width: box.width, height: box.height },
+    { width: window.innerWidth, height: window.innerHeight });
+  bubble.style.top = `${at.top}px`;
+  bubble.style.left = `${at.left}px`;
+}
+
+window.addEventListener('scroll', repositionTour, { passive: true });
+window.addEventListener('resize', repositionTour);
+
+/* Escape leaves, arrows step. The bubble holds focus, so these land here
+   rather than on whatever was focused before the tour opened. */
+document.addEventListener('keydown', (ev) => {
+  if (!tour.active) return;
+  if (ev.key === 'Escape') { ev.preventDefault(); endTour(false); }
+  else if (ev.key === 'ArrowRight') { ev.preventDefault(); nextTourStep(); }
+  else if (ev.key === 'ArrowLeft') { ev.preventDefault(); prevTourStep(); }
+});
+
+function clearTourTarget() {
+  if (tour.lifted) { tour.lifted.classList.remove('tour-above'); tour.lifted = null; }
+  if (tour.targetEl && tour.onTarget) tour.targetEl.removeEventListener('click', tour.onTarget);
+  tour.targetEl = null;
+  tour.onTarget = null;
+}
+
+function nextTourStep() {
+  if (!tour.active) return;
+  tour.index += 1;
+  if (tour.index >= tour.steps.length) { endTour(true); return; }
+  showTourStep();
+}
+
+function prevTourStep() {
+  if (!tour.active || tour.index === 0) return;
+  tour.index -= 1;
+  showTourStep();
+}
+
+function endTour(completed) {
+  clearTourTarget();
+  tour.active = false;
+  $('#tour').hidden = true;
+  
+  state.settings.tourDone = true;
+  save();
+  if (completed) { go('workout'); toast('You can run this again from Settings'); }
+  else render();
 }
 
 function render() {
@@ -2335,6 +2518,10 @@ function renderSettings() {
 
       <p class="small muted" id="storage-status" style="margin:0 0 12px">Checking storage…</p>
 
+      <button class="btn block secondary" data-action="tour-start">Getting started</button>
+      <p class="small muted" style="margin:6px 0 12px">A quick walkthrough of the five tabs. Runs
+        by itself the first time; here whenever you want it again.</p>
+
       <button class="btn block secondary" data-action="exercise-names">Exercise names</button>
       <p class="small muted" style="margin:6px 0 12px">Fix a typo or merge two spellings of the
         same lift, so its history stays in one piece.</p>
@@ -3028,6 +3215,23 @@ document.addEventListener('click', (ev) => {
       break;
     }
 
+    case 'tour-start':
+      closeSheet();
+      startTour();
+      break;
+
+    case 'tour-next':
+      nextTourStep();
+      break;
+
+    case 'tour-prev':
+      prevTourStep();
+      break;
+
+    case 'tour-end':
+      endTour(false);
+      break;
+
     case 'start-rest':
       startRest(Number(state.settings.restSeconds) || 90);
       break;
@@ -3574,3 +3778,7 @@ if ('serviceWorker' in navigator) {
 }
 
 go('workout');
+
+/* go() renders synchronously, so the elements the walkthrough points at already
+   exist by here. */
+maybeOfferTour();

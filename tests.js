@@ -514,6 +514,83 @@ describe('when you trained', () => {
   check('all 24 hours fall into a band', covered.every((n) => n === 1), covered.join(','));
 });
 
+/* ----------------------------------------------------------- walkthrough */
+
+describe('walkthrough placement', () => {
+  const PHONE = { width: 375, height: 812 };
+  const BUBBLE = { width: 320, height: 190 };
+  const rect = (left, top, width, height) => ({ left, top, width, height });
+
+  /* Plenty of room underneath: the bubble goes below, centred on the target. */
+  const under = placeBubble(rect(40, 120, 300, 48), BUBBLE, PHONE);
+  eq('a target near the top gets a bubble below it', under.placement, 'below');
+  check('and it is centred on the target', Math.abs(under.left + BUBBLE.width / 2 - 190) < 1,
+    `left ${under.left}`);
+
+  /* The tab bar. Nothing fits underneath, so it has to flip. */
+  const tab = placeBubble(rect(300, 749, 75, 63), BUBBLE, PHONE);
+  eq('a tab bar target flips the bubble above', tab.placement, 'above');
+  check('the bubble stays on screen horizontally',
+    tab.left >= 10 && tab.left + BUBBLE.width <= PHONE.width - 10, `left ${tab.left}`);
+  check('and vertically', tab.top >= 10 && tab.top + BUBBLE.height <= PHONE.height - 10,
+    `top ${tab.top}`);
+
+  /* Regression guard: pointing at the last tab used to hang the bubble off the
+     right edge, because it was centred without being clamped. */
+  const lastTab = placeBubble(rect(345, 760, 30, 50), BUBBLE, PHONE);
+  check('a target in the far corner does not push the bubble off screen',
+    lastTab.left + BUBBLE.width <= PHONE.width - 10, `right edge ${lastTab.left + BUBBLE.width}`);
+
+  const firstTab = placeBubble(rect(0, 760, 30, 50), BUBBLE, PHONE);
+  check('nor off the left', firstTab.left >= 10, `left ${firstTab.left}`);
+
+  /* A target taller than the screen leaves room nowhere; it still has to land
+     somewhere visible rather than at a negative offset. */
+  const huge = placeBubble(rect(0, 0, 375, 812), BUBBLE, PHONE);
+  check('an oversized target still yields an on-screen bubble',
+    huge.top >= 10 && huge.top + BUBBLE.height <= PHONE.height - 10, JSON.stringify(huge));
+
+  /* Every real step, at a plausible position, must stay inside the phone. */
+  const spots = [rect(16, 90, 343, 52), rect(16, 400, 343, 52), rect(0, 749, 75, 63),
+    rect(150, 749, 75, 63), rect(300, 749, 75, 63), rect(16, 700, 343, 48)];
+  const escapes = spots.filter((r) => {
+    const p = placeBubble(r, BUBBLE, PHONE);
+    return p.left < 0 || p.top < 0
+      || p.left + BUBBLE.width > PHONE.width || p.top + BUBBLE.height > PHONE.height;
+  });
+  check('no plausible target puts the bubble off screen', escapes.length === 0,
+    `${escapes.length} of ${spots.length} escaped`);
+});
+
+describe('walkthrough steps', () => {
+  const steps = [
+    { id: 'a' },
+    { id: 'b', target: '.present' },
+    { id: 'c', target: '.missing' },
+    { id: 'd', target: '.present', view: 'routines' },
+  ];
+  const find = (sel) => (sel === '.present' ? {} : null);
+
+  eq('steps with no target are always kept',
+    usableSteps(steps, find).map((s) => s.id), ['a', 'b', 'd']);
+
+  /* A step is tested on its own tab, so the finder is handed the step and can
+     switch views first. Without this the tour silently lost every step whose
+     target lives on another tab. */
+  const seen = [];
+  usableSteps(steps, (sel, step) => { seen.push(step.view || null); return {}; });
+  eq('the finder is told which view each targeted step wants', seen, [null, null, 'routines']);
+
+  /* The shipped tour: unique ids, every step says something. */
+  const ids = TOUR_STEPS.map((s) => s.id);
+  check('tour step ids are unique', new Set(ids).size === ids.length, ids.join(','));
+  check('every step has a title and a body',
+    TOUR_STEPS.every((s) => s.title && s.body));
+  check('every targeted step names the tab it lives on',
+    TOUR_STEPS.every((s) => !s.target || !!s.view || s.target.startsWith('.tab')),
+    TOUR_STEPS.filter((s) => s.target && !s.view && !s.target.startsWith('.tab')).map((s) => s.id).join(','));
+});
+
 /* ----------------------------------------------------------------- report */
 
 (function report() {

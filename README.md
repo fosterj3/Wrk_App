@@ -27,6 +27,7 @@ installed copy, so only the product name changed.
 - **Bodyweight** — log your weight, see a 7-day rolling average against a goal.
 - **Data** — charts for how often you train, when of day you train, what kind, your strength progression per exercise, weekly volume and cardio, and your most-trained lifts.
 - **Dark and light themes** — deep plum throughout, or plum on warm off-white. Follows your phone's setting on first run; switch it any time in Settings.
+- **A walkthrough on first run** — a ten-step spotlight tour of the five tabs. Shows itself once; rerun it any time from Settings.
 - **Works offline** — a service worker caches the app, so it runs in the gym with no signal.
 
 ## Installing it on your phone
@@ -87,6 +88,7 @@ Then open <http://localhost:8080/>.
 | `library.js` | The exercise library, shared by the app and the tests |
 | `tests.html` / `tests.js` | Pure-logic test suite — open the page to run it |
 | `viz.js` | Chart building and stats aggregation for the Data tab |
+| `tour.js` | The first-run walkthrough: its steps and the placement maths |
 | `styles.css` | Styling, dark theme, mobile-first layout |
 | `sw.js` | Service worker for offline use |
 | `manifest.webmanifest` | Makes it installable as a PWA |
@@ -179,6 +181,59 @@ Today is circled, the selected day is outlined, and paging between months or wee
 selection with you so the panel underneath always describes something you can see.
 
 
+
+
+## The first-run walkthrough
+
+New users were opening the app and not knowing where to start. `tour.js` runs a ten-step spotlight
+tour: dim everything, ring one real control, one sentence about what it's for, move on.
+
+It introduces itself **once**, and lives in Settings → **Getting started** after that.
+
+### It points, it doesn't trap
+
+The scrim is `pointer-events:none`. Every part of the app stays usable while the tour is up — tap
+something it didn't suggest and the bubble simply waits. Being stuck inside a tutorial is worse
+than not having one, and the people most likely to tap something unexpected are exactly the people
+it exists for. Tapping the ringed control advances the tour too, so following the instruction and
+pressing **Next** amount to the same thing.
+
+### Who sees it
+
+| | |
+| --- | --- |
+| Fresh install, nothing logged | Runs automatically |
+| Anything already logged | Silently marked done, never interrupted |
+| Anyone, any time | Settings → Getting started |
+
+Existing installs are marked done rather than shown the tour. Somebody with six months of history
+does not need telling where the Workout tab is, and a walkthrough appearing over their log would
+read as a bug.
+
+### Three things that had to be got right
+
+**Steps are tested on their own tab.** A target on the Routines tab does not exist while the
+Workout tab is rendered. The first version filtered every step against the current screen and
+silently dropped half the tour — `paste` and `plan` vanished. `startTour()` now switches to each
+step's own view before testing for its target. `go()` and `render()` are synchronous, so the whole
+sweep happens inside one frame and never paints.
+
+**The tab bar has to rise as a whole.** `.tabbar` has `backdrop-filter`, which creates a stacking
+context, so raising a tab button's `z-index` inside it does nothing against a scrim outside it. Each
+step can name a `lift` selector — the ancestor that actually has to move above the dimming.
+
+**No `requestAnimationFrame`.** rAF is suspended while a tab is in the background, which would leave
+the tour started but never drawn. `setTimeout` fires either way (clamped to about a second when
+backgrounded), and `getBoundingClientRect` is accurate in a hidden tab regardless.
+
+### Placement
+
+`placeBubble()` is pure and tested, because the awkward cases are all geometric: below the target
+when there is room, flipped above when there isn't, centred horizontally but clamped to the
+viewport. Pointing at the last tab used to hang the bubble off the right edge.
+
+The ring is positioned from a viewport-relative rect, so scroll and resize reposition it rather than
+locking the page — locking would have contradicted the whole "not a cage" design.
 
 ## Exercise types
 

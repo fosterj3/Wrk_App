@@ -63,6 +63,9 @@
 
   --chip-ink:#1A0A1B;
   --scrim:rgba(0,0,0,.6);
+  --tour-scrim:rgba(8,3,9,.74);   /* deeper than a sheet backdrop: it has to
+                                     read as "look here", not "something is
+                                     open in front" */
   --tabbar-bg:rgba(37,17,38,.93);
   --day-active:#3D1B3E;
 
@@ -115,6 +118,7 @@
 
   --chip-ink:#ffffff;
   --scrim:rgba(35,15,36,.38);
+  --tour-scrim:rgba(35,15,36,.58);
   --tabbar-bg:rgba(255,255,255,.94);
   --day-active:#EFE2EF;        /* a plum tint so trained days still pop */
 
@@ -679,3 +683,43 @@ select.text.slim{width:auto;flex:1;min-width:150px;padding:8px 10px;font-size:13
    as "nobody has said yet", not as "you trained at noon". */
 .time-edit.unset{color:var(--accent-fg);border-bottom-style:solid}
 .time-edit::-webkit-calendar-picker-indicator{opacity:.5;cursor:pointer}
+
+/* ---------- first-run walkthrough ---------- */
+
+/* The dimming is one element: a small box with an enormous spread shadow, so
+   the "hole" is exact and needs no four-div frame. pointer-events:none
+   throughout — the tour points, it does not trap. */
+.tour-spot{
+  position:fixed;z-index:60;pointer-events:none;
+  border-radius:12px;
+  box-shadow:0 0 0 9999px var(--tour-scrim);
+  outline:2px solid var(--accent-fg);
+  outline-offset:0;
+  transition:top .18s ease, left .18s ease, width .18s ease, height .18s ease;
+}
+/* Raised above the dimming so the thing being pointed at stays lit. Applied to
+   the tab bar rather than the tab, which has no stacking context of its own. */
+.tour-above{z-index:61 !important}
+
+.tour-bubble{
+  position:fixed;z-index:62;
+  width:min(320px, calc(100vw - 20px));
+  background:var(--surface);border:1px solid var(--line);
+  border-radius:var(--radius);box-shadow:var(--shadow);
+  padding:14px;
+  transition:top .18s ease, left .18s ease;
+}
+.tour-bubble:focus{outline:none}
+.tour-bubble.centered{
+  top:50% !important;left:50% !important;
+  transform:translate(-50%,-50%);
+}
+.tour-bubble h3{font-size:17px;margin:0 0 6px}
+.tour-bubble p{margin:0;font-size:14px;color:var(--muted);line-height:1.5}
+.tour-count{
+  font-size:11px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--accent-fg);font-weight:600;margin-bottom:6px;
+}
+.tour-actions{display:flex;align-items:center;gap:8px;margin-top:14px}
+.btn.small{padding:8px 14px;font-size:14px;border-radius:10px}
+

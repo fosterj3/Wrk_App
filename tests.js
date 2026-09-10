@@ -31,6 +31,23 @@ describe('utilities', () => {
   eq('two workouts are not', plural(2, 'workout'), '2 workouts');
   eq('zero takes the plural', plural(0, 'routine'), '0 routines');
 
+  /* Durations are stored as total minutes; hours are an input convenience. */
+  eq('minutes split into hours', splitDuration(95), { h: 1, m: 35 });
+  eq('under an hour has no hours', splitDuration(45), { h: 0, m: 45 });
+  eq('blank is zero', splitDuration(''), { h: 0, m: 0 });
+  eq('hours and minutes join up', joinDuration(2, 15), 135);
+  eq('a blank hour box still counts the minutes', joinDuration('', 40), 40);
+  eq('typing 90 minutes is 90 minutes', joinDuration('', 90), 90);
+
+  /* Regression: rounding after dividing turned 119.6 into "1h 60m". */
+  eq('a fraction under the hour rolls up', splitDuration(119.6), { h: 2, m: 0 });
+  eq('the stopwatch value rounds for display', splitDuration(43.5), { h: 0, m: 44 });
+
+  eq('formatting reads in hours past 60', formatMinutes(95), '1h 35m');
+  eq('a round hour drops the minutes', formatMinutes(60), '1h');
+  eq('short sessions stay in minutes', formatMinutes(45), '45 min');
+  eq('nothing logged shows a dash', formatMinutes(0), '—');
+
   /* dayKey must use local parts: toISOString() would file a late workout under
      tomorrow for anyone west of UTC. */
   const evening = new Date(2026, 0, 15, 23, 30);
@@ -132,9 +149,13 @@ describe('exercise library', () => {
   const names = LIBRARY.map((e) => e.name);
   check('no duplicate names', new Set(names).size === names.length,
     `duplicates: ${names.filter((n, i) => names.indexOf(n) !== i)}`);
+  /* Against the shared list, not a copy of it: normalizeState rewrites any
+     type it does not recognise to 'lifting', so a library entry using a type
+     that is not registered would be silently destroyed on the next load. */
   check('every entry has a known type',
-    LIBRARY.every((e) => ['lifting', 'cardio', 'timed'].includes(e.type)),
-    `bad: ${LIBRARY.filter((e) => !['lifting', 'cardio', 'timed'].includes(e.type)).map((e) => e.name)}`);
+    LIBRARY.every((e) => EXERCISE_TYPES.includes(e.type)),
+    `bad: ${LIBRARY.filter((e) => !EXERCISE_TYPES.includes(e.type)).map((e) => e.name)}`);
+  check('the library covers practice', LIBRARY.some((e) => e.type === 'practice'));
   check('every entry has a group', LIBRARY.every((e) => !!e.group));
 });
 
@@ -217,6 +238,34 @@ describe('csv export / import', () => {
   eq('all three exercises return',
     back.sessions[0].entries.map((e) => `${e.name}:${e.type}:${e.sets.length}`),
     ['Barbell Bench Press:lifting:2', 'Plank:timed:1', 'Run:cardio:1']);
+
+  /* A practice session round-trips, and — the part that matters — a cardio
+     machine logged with minutes and no distance stays cardio. Both are
+     "minutes, no distance" in a CSV, so shape alone cannot tell them apart;
+     the importer resolves it by name. Getting this wrong would silently
+     re-file every treadmill row in every CSV exported before practice
+     existed. */
+  const mixed = buildCsv([{
+    id: 's2', name: 'Mixed', date: new Date(2026, 4, 7, 8, 0).toISOString(), durationMs: 0,
+    entries: [
+      { id: 'd', name: 'Vinyasa Yoga', type: 'practice', sets: [{ minutes: 75 }] },
+      { id: 'e', name: 'Treadmill', type: 'cardio', sets: [{ distance: '', minutes: '30' }] },
+    ],
+  }], 'lb');
+  eq('practice and distance-less cardio both survive',
+    csvToSessions(mixed).sessions[0].entries.map((e) => `${e.name}:${e.type}`),
+    ['Vinyasa Yoga:practice', 'Treadmill:cardio']);
+
+  /* Same rows with the Type column stripped, which is what a hand-made or
+     third-party file looks like. */
+  const noType = mixed.split('\n').map((line, i) => {
+    const cells = line.split(',');
+    cells[4] = '';
+    return cells.join(',');
+  }).join('\n');
+  eq('without a Type column the names still decide',
+    csvToSessions(noType).sessions[0].entries.map((e) => `${e.name}:${e.type}`),
+    ['Vinyasa Yoga:practice', 'Treadmill:cardio']);
   eq('set values survive', back.sessions[0].entries[0].sets.map((s) => `${s.weight}x${s.reps}`),
     ['185x8', '185x7']);
 
@@ -253,33 +302,68 @@ describe('plan builder', () => {
   const problems = [];
   let combos = 0;
 
+  const styles = Object.keys(PLAN_STYLES);
+
   goals.forEach((goal) => [2, 3, 4, 5].forEach((days) => kits.forEach((equipment) => levels.forEach((level) => {
+    styles.forEach((style) => {
     combos++;
-    const plan = buildPlan({ goal, days, equipment, level });
-    const tag = `${goal}/${days}/${equipment}/${level}`;
+    const plan = buildPlan({ goal, days, equipment, level, style });
+    const tag = `${goal}/${days}/${equipment}/${level}/${style}`;
 
     if (!plan.routines.length) problems.push(`${tag}: no routines`);
     if (!plan.notes.length) problems.push(`${tag}: no notes`);
     if (plan.weeklyGoal !== days) problems.push(`${tag}: weeklyGoal ${plan.weeklyGoal}`);
 
+    if (plan.routines.length !== Math.min(5, Math.max(2, days)) && (style === 'cardio' || style === 'mindbody')) {
+      problems.push(`${tag}: ${plan.routines.length} sessions for ${days} days`);
+    }
+
     plan.routines.forEach((r) => {
-      /* Regression: bodyweight splits collapsed to one exercise a day. */
-      if (r.items.length < 3) problems.push(`${tag} ${r.name}: ${r.items.length} exercises`);
+      /* Regression: bodyweight splits collapsed to one exercise a day. A
+         cardio or practice session is legitimately one thing, so the floor
+         only applies where the day is built out of movement patterns. */
+      const liftingDay = style === 'lift' || style === 'mixed';
+      if (liftingDay && r.items.length < 3) problems.push(`${tag} ${r.name}: ${r.items.length} exercises`);
+      if (!liftingDay && !r.items.length) problems.push(`${tag} ${r.name}: empty`);
 
       r.items.forEach((it) => {
         if (!libNames.has(it.name)) problems.push(`${tag}: "${it.name}" not in library`);
         const lib = LIBRARY.find((x) => x.name === it.name);
         if (lib && lib.type !== it.type) problems.push(`${tag}: "${it.name}" typed ${it.type}, library says ${lib.type}`);
         if (!it.sets.length) problems.push(`${tag}: "${it.name}" has no sets`);
+        /* A duration-based session with no duration is not a plan. */
+        if (MINUTE_TYPES.includes(it.type) && !(Number(it.sets[0].minutes) > 0)) {
+          problems.push(`${tag}: "${it.name}" has no minutes`);
+        }
       });
 
       const names = r.items.map((i) => i.name);
       if (new Set(names).size !== names.length) problems.push(`${tag} ${r.name}: duplicate exercise`);
     });
+
+    const routineNames = plan.routines.map((r) => r.name);
+    if (new Set(routineNames).size !== routineNames.length) {
+      problems.push(`${tag}: duplicate routine name (${routineNames.join(',')})`);
+    }
+    });
   }))));
 
-  check(`all ${combos} goal x days x kit x level combinations are valid`, problems.length === 0,
+  check(`all ${combos} goal x days x kit x level x style combinations are valid`, problems.length === 0,
     [...new Set(problems)].slice(0, 5).join(' | '));
+
+  /* The style has to actually change the week, or the question is decoration. */
+  const styleOf = (style) => buildPlan({ goal: 'weightloss', days: 3, equipment: 'gym', level: 'some', style })
+    .routines.flatMap((r) => r.items.map((i) => i.type));
+  check('a lifting week has no cardio bolted on', !styleOf('lift').includes('cardio'), styleOf('lift').join(','));
+  check('a mixed week has both', styleOf('mixed').includes('lifting') && styleOf('mixed').includes('cardio'));
+  check('a cardio week is cardio', styleOf('cardio').every((t) => t === 'cardio'), styleOf('cardio').join(','));
+  check('a yoga week is practice', styleOf('mindbody').every((t) => t === 'practice'), styleOf('mindbody').join(','));
+
+  /* Older callers pass no style at all — they must keep the previous shape. */
+  const legacy = buildPlan({ goal: 'weightloss', days: 3, equipment: 'gym', level: 'some' });
+  check('no style still builds the old lifting-plus-cardio week',
+    legacy.routines.every((r) => r.items.some((i) => i.type === 'lifting'))
+    && legacy.routines.some((r) => r.items.some((i) => i.type === 'cardio')));
 
   /* Regression: prescribing pull-ups to someone who can't do one. */
   const newBw = buildPlan({ goal: 'general', days: 3, equipment: 'bodyweight', level: 'new' });
@@ -357,7 +441,14 @@ describe('stats', () => {
     formatSet('lifting', { weight: '185', reps: '8' }, 'lb'),
     formatSet('timed', { seconds: '45' }, 'lb'),
     formatSet('cardio', { distance: '3.1', minutes: '28' }, 'lb'),
-  ], ['185lb×8', '45s', '3.1/28min']);
+    formatSet('practice', { minutes: 45 }, 'lb'),
+  ], ['185lb×8', '45s', '3.1 · 28 min', '45 min']);
+
+  /* The whole point of the hours box: a long ride should not read as "95min". */
+  eq('a long session reads in hours',
+    formatSet('cardio', { distance: '24', minutes: 95 }, 'lb'), '24 · 1h 35m');
+  eq('cardio with no distance drops the separator',
+    formatSet('cardio', { distance: '', minutes: 30 }, 'lb'), '30 min');
 
   eq('compact shortens big numbers', [compact(950), compact(12900), compact(2400000)],
     ['950', '12.9K', '2.4M']);
@@ -380,6 +471,47 @@ describe('stats', () => {
   const trend = weightTrend(weights, new Date(2026, 7, 1), new Date(2026, 9, 1));
   eq('trend reports the average move', trend.change, 0);
   eq('trend counts the weigh-ins', trend.count, 3);
+});
+
+/* ---------------------------------------------------------- time of day */
+
+describe('when you trained', () => {
+  const at = (hour, extra) => ({
+    id: uid(), name: 'W', durationMs: 0, entries: [],
+    date: new Date(2026, 8, 9, hour, 15).toISOString(), ...extra,
+  });
+
+  check('a live session has a real time', hasRealTime(at(6, { timeSet: true })));
+  check('a backdated one does not', !hasRealTime(at(12, { timeSet: false })));
+
+  /* Logged before the flag existed: exactly midday was the parked default,
+     anything else was a real clock reading. */
+  const legacyNoon = { id: 'x', name: 'W', durationMs: 0, entries: [],
+    date: new Date(2026, 8, 9, 12, 0, 0, 0).toISOString() };
+  check('legacy midday is treated as unset', !hasRealTime(legacyNoon));
+  const legacyEvening = { id: 'y', name: 'W', durationMs: 0, entries: [],
+    date: new Date(2026, 8, 9, 18, 30).toISOString() };
+  check('a legacy evening session counts', hasRealTime(legacyEvening));
+
+  const bands = timeOfDayBands([
+    at(6, { timeSet: true }), at(7, { timeSet: true }),
+    at(19, { timeSet: true }),
+    at(12, { timeSet: false }),
+  ]);
+  eq('untimed sessions are excluded, not guessed', bands.unset, 1);
+  eq('the rest are counted', bands.counted, 3);
+  eq('early risers land in Early', bands.bands.find((b) => b.label === 'Early').count, 2);
+  eq('an evening session lands in Evening', bands.bands.find((b) => b.label === 'Evening').count, 1);
+
+  /* 1am belongs to the night before, not to a band nobody reads. */
+  const nightOwl = timeOfDayBands([at(1, { timeSet: true })]);
+  eq('after midnight counts as Night', nightOwl.bands.find((b) => b.label === 'Night').count, 1);
+
+  /* Every hour of the day has somewhere to go — an unbanded hour would vanish
+     from the chart without anything saying so. */
+  const covered = Array.from({ length: 24 }, (_, h) =>
+    timeOfDayBands([at(h, { timeSet: true })]).bands.reduce((n, b) => n + b.count, 0));
+  check('all 24 hours fall into a band', covered.every((n) => n === 1), covered.join(','));
 });
 
 /* ----------------------------------------------------------------- report */

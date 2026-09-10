@@ -140,8 +140,11 @@ function closeSheet() {
  * One bar, two jobs.
  *
  *   'rest'      counts down — between sets and exercises. Ends by itself.
- *   'stopwatch' counts up — for a plank or any held position. Ends when you
- *               stop it, and writes the elapsed seconds into the set.
+ *   'stopwatch' counts up — for a plank, a run, or a yoga class. Ends when you
+ *               stop it, and writes the elapsed time into the set.
+ *
+ * `field` is what it writes: 'seconds' for a hold, 'minutes' for anything
+ * measured in minutes. A 40-minute run recorded as "2400s" would be useless.
  */
 const timer = {
   mode: null,
@@ -152,6 +155,7 @@ const timer = {
   target: 0,
   entryId: null,
   setId: null,
+  field: 'seconds',
   hitTarget: false,
 };
 
@@ -169,14 +173,18 @@ function startRest(seconds) {
   runTimer();
 }
 
-/** @param {number} target Seconds to chime at, or 0 for a plain stopwatch. */
-function startStopwatch(entryId, setId, target) {
+/**
+ * @param {number} target Seconds to chime at, or 0 for a plain stopwatch.
+ * @param {'seconds'|'minutes'} [field] Where the elapsed time is written.
+ */
+function startStopwatch(entryId, setId, target, field) {
   Object.assign(timer, {
     mode: 'stopwatch',
     startedAt: Date.now(),
     target: target || 0,
     entryId,
     setId,
+    field: field || 'seconds',
     hitTarget: false,
   });
   const entry = state.active.entries.find((e) => e.id === entryId);
@@ -228,7 +236,7 @@ function updateTimer() {
 function stopTimer() {
   const wasStopwatch = timer.mode === 'stopwatch';
   const elapsed = Math.round((Date.now() - timer.startedAt) / 1000);
-  const { entryId, setId } = timer;
+  const { entryId, setId, field } = timer;
 
   clearInterval(timer.tick);
   timer.tick = null;
@@ -240,6 +248,20 @@ function stopTimer() {
   const entry = state.active.entries.find((e) => e.id === entryId);
   const set = entry && entry.sets.find((s) => s.id === setId);
   if (!set) return;
+
+  if (field === 'minutes') {
+    /* Kept to a tenth of a minute: enough to tell a 28-minute run from a
+       29-minute one, without pretending a phone in a pocket measured
+       something to the second. */
+    set.minutes = Math.round(elapsed / 6) / 10;
+    set.done = true;
+    save();
+    render();
+    toast(`Logged ${formatMinutes(set.minutes)}`);
+    /* No rest prompt after a run or a yoga class — resting is not what comes
+       next, and a countdown appearing on its own would just need dismissing. */
+    return;
+  }
 
   set.seconds = String(elapsed);
   set.done = true;
@@ -538,6 +560,7 @@ async function shareRecap() {
 
 function newSet(type) {
   if (type === 'cardio') return { id: uid(), distance: '', minutes: '', done: false };
+  if (type === 'practice') return { id: uid(), minutes: '', done: false };
   if (type === 'timed') return { id: uid(), seconds: '', done: false };
   return { id: uid(), weight: '', reps: '', done: false };
 }
@@ -556,6 +579,8 @@ function makeEntry(item) {
       const s = newSet(type);
       if (type === 'cardio') {
         if (t.distance != null) s.distance = String(t.distance);
+        if (t.minutes != null) s.minutes = String(t.minutes);
+      } else if (type === 'practice') {
         if (t.minutes != null) s.minutes = String(t.minutes);
       } else if (type === 'timed') {
         if (t.seconds != null) s.seconds = String(t.seconds);
@@ -583,6 +608,12 @@ function summarizeItem(item) {
     return sets.length > 1 ? `${sets.length} × ${per}` : per;
   }
 
+  if (item.type === 'practice') {
+    const mins = sets[0].minutes;
+    if (mins == null) return sets.length > 1 ? `${sets.length} sessions` : '';
+    return sets.length > 1 ? `${sets.length} × ${formatMinutes(mins)}` : formatMinutes(mins);
+  }
+
   if (item.type === 'timed') {
     const secs = sets[0].seconds;
     if (secs == null) return `${sets.length} × hold`;
@@ -607,21 +638,31 @@ function summarizeItem(item) {
  * @param {string} [onDayKey]    'YYYY-MM-DD' to date the session to an earlier
  *                               day. Omit (or pass today) for a live workout.
  */
-function startSession(routine, onDayKey) {
+function startSession(routine, onDayKey, atTime) {
   const todayKey = dayKey(new Date());
   const backdated = !!onDayKey && onDayKey !== todayKey;
 
-  /* A backdated entry has no real start time, so pick midday — it keeps the
-     session inside the right calendar day in every timezone. */
+  /* Midday is the placeholder when nobody has said what time it was: it keeps
+     the session inside the right calendar day in every timezone. If they did
+     say, use it — and record that it was a real answer, so the time-of-day
+     chart can tell the two apart. */
   let when = new Date();
+  let timeSet = false;
   if (backdated) {
     when = keyToDate(onDayKey);
-    when.setHours(12, 0, 0, 0);
+    if (atTime && /^\d{1,2}:\d{2}$/.test(atTime)) {
+      const [h, m] = atTime.split(':').map(Number);
+      when.setHours(h, m, 0, 0);
+      timeSet = true;
+    } else {
+      when.setHours(12, 0, 0, 0);
+    }
   }
 
   state.active = {
     id: uid(),
     startedAt: when.toISOString(),
+    timeSet,
     name: routine ? routine.name : 'Quick workout',
     routineId: routine ? routine.id : null,
     entries: routine ? routine.items.map(makeEntry) : [],
@@ -674,6 +715,14 @@ function openLogSheet(key) {
       <strong>${esc(d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }))}</strong>.
       You'll type in the sets you did — no timer.`}
     </p>
+    ${isToday ? '' : `
+      <!-- Asked here rather than corrected later. Blank is honest: it stays
+           parked at midday and stays out of the time-of-day chart until
+           someone actually knows. -->
+      <label class="field" style="margin-bottom:14px">
+        <span class="small muted">What time did you train? <em>(optional)</em></span>
+        <input class="text" type="time" id="log-time" aria-label="Time of the workout">
+      </label>`}
     <button class="btn block" data-action="log-empty" data-key="${key}">Start from scratch</button>
     ${state.routines.length ? `
       <h3 class="small muted" style="margin:20px 0 8px">FROM A ROUTINE</h3>
@@ -685,6 +734,12 @@ function openLogSheet(key) {
           </div>
           <span class="muted">&rsaquo;</span>
         </button>`).join('')}` : ''}`);
+}
+
+/* Read the optional time out of the log sheet before it closes. */
+function loggedTime() {
+  const el = $('#log-time');
+  return el && el.value ? el.value : null;
 }
 
 /* Guard shared by both log actions. */
@@ -789,11 +844,16 @@ function renderEntry(entry, index, all) {
   const total = all.length;
   const isCardio = entry.type === 'cardio';
   const isTimed = entry.type === 'timed';
+  const isPractice = entry.type === 'practice';
   const unit = state.settings.units === 'kg' ? 'Kg' : 'Lb';
   /* Four columns now that delete is a swipe rather than a trailing button —
-     which gives the number fields noticeably more room. */
+     which gives the number fields noticeably more room. Cardio takes a fifth,
+     because a two-hour ride entered as "120" is arithmetic the app should be
+     doing. Practice drops distance entirely: there is no distance in a yoga
+     class. */
   const cols = isTimed ? ['#', 'Seconds', '', '']
-    : isCardio ? ['#', 'Distance', 'Min', '']
+    : isCardio ? ['#', 'Distance', 'Hr', 'Min', '']
+    : isPractice ? ['#', 'Hr', 'Min', '']
     : ['#', unit, 'Reps', ''];
 
   /* What you did last time is the reason to open the app mid-session, so it
@@ -833,18 +893,33 @@ function renderEntry(entry, index, all) {
       <div class="set-head">${cols.map((c) => `<div>${c}</div>`).join('')}</div>
       ${entry.sets.map((s, i) => {
         const running = timer.mode === 'stopwatch' && timer.setId === s.id;
+        /* Hours and minutes are two boxes over one stored number: the pair
+           writes set.minutes between them, so nothing downstream — CSV,
+           charts, the parser — learns about a second field. A blank hour box
+           is left blank rather than shown as 0, or every short session reads
+           as "0h 30". */
+        const dur = splitDuration(s.minutes);
+        const durCells = `
+          <input class="cell" type="number" inputmode="numeric" step="1" min="0" placeholder="—"
+                 data-field="durH" aria-label="Hours" value="${dur.h ? dur.h : ''}">
+          <input class="cell" type="number" inputmode="numeric" step="any" min="0" placeholder="—"
+                 data-field="durM" aria-label="Minutes" value="${s.minutes === '' || s.minutes == null ? '' : dur.m}">`;
+
         const cells = isTimed
           ? `<input class="cell" type="number" inputmode="numeric" step="any" placeholder="—"
                     data-field="seconds" value="${esc(s.seconds)}">
              <button class="check timer-btn ${running ? 'on' : ''}" data-action="time-set"
                      data-id="${entry.id}" aria-label="${running ? 'Stop timing' : 'Start timing this set'}"
                      >${running ? '&#9632;' : '&#9654;'}</button>`
+          : isPractice
+          ? durCells
+          : isCardio
+          ? `<input class="cell" type="number" inputmode="decimal" step="any" placeholder="—"
+                    data-field="distance" value="${esc(s.distance)}">${durCells}`
           : `<input class="cell" type="number" inputmode="decimal" step="any" placeholder="—"
-                    data-field="${isCardio ? 'distance' : 'weight'}"
-                    value="${esc(isCardio ? s.distance : s.weight)}">
+                    data-field="weight" value="${esc(s.weight)}">
              <input class="cell" type="number" inputmode="numeric" step="any" placeholder="—"
-                    data-field="${isCardio ? 'minutes' : 'reps'}"
-                    value="${esc(isCardio ? s.minutes : s.reps)}">`;
+                    data-field="reps" value="${esc(s.reps)}">`;
 
         return `
         <div class="set-swipe swipe-wrap">
@@ -864,6 +939,14 @@ function renderEntry(entry, index, all) {
       ${entry.type === 'lifting'
         ? `<button class="ghost small" data-action="plates" data-id="${entry.id}">Plates</button>`
         : ''}
+      ${isCardio || isPractice ? (() => {
+        /* Timing the thing while you do it beats working out afterwards that
+           you started at 6:52. Writes into the last set, which is the one the
+           inputs above are showing. */
+        const timingHere = timer.mode === 'stopwatch' && timer.entryId === entry.id;
+        return `<button class="ghost small ${timingHere ? 'on' : ''}" data-action="time-entry"
+                        data-id="${entry.id}">${timingHere ? '&#9632; Stop' : '&#9654; Start'}</button>`;
+      })() : ''}
     </div>
     </div>
   </div>`;
@@ -951,6 +1034,12 @@ function finishSession() {
     id: a.id,
     name: a.name,
     date: a.startedAt,
+    /* Whether the clock time is real or a placeholder. A live workout knows
+       when it happened; a backdated one is parked at midday until someone
+       says otherwise. The "when do you train" chart only counts real ones —
+       without this every retroactive entry would pile up at noon and invent a
+       lunchtime habit nobody has. */
+    timeSet: !a.backdated || !!a.timeSet,
     ...(a.note ? { note: a.note } : {}),
     /* A typed duration for a backdated log; real elapsed time for a live one. */
     durationMs: a.backdated
@@ -1049,6 +1138,7 @@ function editRoutine(id) {
                 <option value="lifting" ${it.type === 'lifting' ? 'selected' : ''}>Weight &amp; reps</option>
                 <option value="timed" ${it.type === 'timed' ? 'selected' : ''}>Held time</option>
                 <option value="cardio" ${it.type === 'cardio' ? 'selected' : ''}>Distance &amp; time</option>
+                <option value="practice" ${it.type === 'practice' ? 'selected' : ''}>Duration only</option>
               </select>
               <span class="small muted grow">${esc(summarizeItem(it) || '')}</span>
               <button class="icon-btn" data-action="routine-remove-item" data-id="${id}" data-index="${i}"
@@ -1084,18 +1174,31 @@ const PLAN_STEPS = [
     ],
   },
   {
+    key: 'style',
+    title: 'What kind of training?',
+    lead: 'The goal says where you want to get to. This says how you want to get there.',
+    options: () => Object.entries(PLAN_STYLES).map(([value, o]) => ({ value, ...o })),
+  },
+  {
     key: 'equipment',
     title: 'What can you train with?',
     lead: '',
+    /* Nothing in a mat practice depends on the answer, so it isn't asked. */
+    when: (a) => a.style !== 'mindbody',
     options: () => Object.entries(PLAN_EQUIPMENT).map(([value, o]) => ({ value, ...o })),
   },
   {
     key: 'level',
-    title: 'How much lifting have you done?',
+    title: 'How much have you done before?',
     lead: '',
     options: () => Object.entries(PLAN_LEVELS).map(([value, o]) => ({ value, ...o })),
   },
 ];
+
+/* The steps that apply given what's been answered so far. */
+function planSteps(answers) {
+  return PLAN_STEPS.filter((s) => !s.when || s.when(answers || {}));
+}
 
 function startPlanWizard() {
   planAnswers = {};
@@ -1103,12 +1206,13 @@ function startPlanWizard() {
 }
 
 function renderPlanStep() {
-  const step = PLAN_STEPS.find((s) => planAnswers[s.key] === undefined);
+  const steps = planSteps(planAnswers);
+  const step = steps.find((s) => planAnswers[s.key] === undefined);
   if (!step) { renderPlanPreview(); return; }
-  const n = PLAN_STEPS.indexOf(step) + 1;
+  const n = steps.indexOf(step) + 1;
 
   openSheet('Build me a plan', `
-    <p class="small muted" style="margin-top:0">Step ${n} of ${PLAN_STEPS.length}</p>
+    <p class="small muted" style="margin-top:0">Step ${n} of ${steps.length}</p>
     <h3 style="margin:0 0 6px">${esc(step.title)}</h3>
     ${step.lead ? `<p class="small muted" style="margin:0 0 14px">${esc(step.lead)}</p>` : ''}
     ${step.options().map((o) => `
@@ -1275,12 +1379,19 @@ function sessionsByDay() {
 /* What colour a day gets: lifting, cardio, or both.
    Timed holds count as strength work — a bench session with a plank in it is
    still a lifting day, not a "both" day. */
+/* Three base kinds — strength, cardio, practice — collapsing to 'mixed' the
+   moment a session contains more than one. Holds count as strength: a plank
+   belongs with the lifting, not on its own. */
 function sessionKind(s) {
   const types = new Set((s.entries || []).map((e) => e.type));
-  const hasCardio = types.has('cardio');
   const hasStrength = types.has('lifting') || types.has('timed');
-  if (hasCardio && hasStrength) return 'mixed';
-  return hasCardio ? 'cardio' : 'lifting';
+  const hasCardio = types.has('cardio');
+  const hasPractice = types.has('practice');
+
+  if ([hasStrength, hasCardio, hasPractice].filter(Boolean).length > 1) return 'mixed';
+  if (hasCardio) return 'cardio';
+  if (hasPractice) return 'practice';
+  return 'lifting';
 }
 
 /* The run of days currently on screen, plus how to label it. Shared by the
@@ -1420,7 +1531,8 @@ function renderCalendar() {
     <div class="cal-legend">
       <span><i class="cal-dot k-lifting"></i>Lifting</span>
       <span><i class="cal-dot k-cardio"></i>Cardio</span>
-      <span><i class="cal-dot k-mixed"></i>Both</span>
+      <span><i class="cal-dot k-practice"></i>Practice</span>
+      <span><i class="cal-dot k-mixed"></i>Mixed</span>
     </div>
 
     <p class="small muted center" style="margin-top:10px">
@@ -1464,13 +1576,24 @@ function renderDayDetail(key, sessions) {
       <div class="card-title">${esc(heading)}</div>
       ${sessions.map((s) => {
         const sets = s.entries.reduce((n, e) => n + e.sets.length, 0);
-        const time = new Date(s.date).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+        const d = new Date(s.date);
+        const hhmm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
         return `
         <div class="sess k-${sessionKind(s)}">
           <div class="row">
             <div class="grow">
               <div style="font-weight:650">${esc(s.name)}</div>
-              <div class="small muted">${time}${s.durationMs > 0 ? ` &middot; ${fmtDuration(s.durationMs)}` : ''} &middot; ${sets} set${sets === 1 ? '' : 's'}</div>
+              <div class="small muted sess-meta">
+                <!-- The time is the control. Logging a Tuesday morning session
+                     on Tuesday afternoon parked it at midday, and there was no
+                     way to correct it; a native time picker is one tap. -->
+                <input class="time-edit${hasRealTime(s) ? '' : ' unset'}" type="time" value="${hhmm}"
+                       data-session-time="${s.id}"
+                       aria-label="Time of ${esc(s.name)}"
+                       title="${hasRealTime(s) ? 'Change the time' : 'Time not set — tap to say when this was'}">
+                ${s.durationMs > 0 ? `&middot; ${fmtDuration(s.durationMs)}` : ''}
+                &middot; ${plural(sets, 'set')}
+              </div>
             </div>
             <button class="ghost small" data-action="edit-session" data-id="${s.id}">Edit</button>
             <button class="icon-btn" data-action="delete-session" data-id="${s.id}"
@@ -1561,13 +1684,16 @@ function renderData() {
   });
 
   /* --- training split --- */
-  const kinds = { lifting: 0, cardio: 0, mixed: 0 };
+  const kinds = { lifting: 0, cardio: 0, practice: 0, mixed: 0 };
   inRange.forEach((s) => { kinds[sessionKind(s)]++; });
+  /* A category with nothing in it is dropped rather than drawn as a zero-width
+     sliver with a legend entry — most people never log all four. */
   const splitSegments = [
-    { key: 'lifting', name: 'Lifting', value: kinds.lifting, tip: `Lifting only\n${kinds.lifting} workouts` },
-    { key: 'cardio', name: 'Cardio', value: kinds.cardio, tip: `Cardio only\n${kinds.cardio} workouts` },
-    { key: 'mixed', name: 'Both', value: kinds.mixed, tip: `Lifting and cardio\n${kinds.mixed} workouts` },
-  ];
+    { key: 'lifting', name: 'Lifting', value: kinds.lifting, tip: `Lifting only\n${plural(kinds.lifting, 'workout')}` },
+    { key: 'cardio', name: 'Cardio', value: kinds.cardio, tip: `Cardio only\n${plural(kinds.cardio, 'workout')}` },
+    { key: 'practice', name: 'Practice', value: kinds.practice, tip: `Yoga, pilates, mobility\n${plural(kinds.practice, 'workout')}` },
+    { key: 'mixed', name: 'Mixed', value: kinds.mixed, tip: `More than one kind\n${plural(kinds.mixed, 'workout')}` },
+  ].filter((seg) => seg.value > 0);
 
   /* --- strength progression --- */
   const tracked = trackableExercises(all);
@@ -1589,6 +1715,18 @@ function renderData() {
   const unit = state.settings.units;
   const hasLifting = volSeries.some((d) => d.value > 0);
   const hasCardio = cardioSeries.some((d) => d.value > 0);
+
+  /* --- when of day --- */
+  const clock = timeOfDayBands(inRange);
+  const clockBars = clock.bands.map((b) => ({
+    label: b.label,
+    value: b.count,
+    tip: `${b.label}\n${plural(b.count, 'workout')}`
+      + (b.volume ? `\n${compact(Math.round(b.volume / b.count))} ${unit} average` : ''),
+  }));
+  const busiest = clock.counted
+    ? clock.bands.reduce((a, b) => (b.count > a.count ? b : a))
+    : null;
 
   el.innerHTML = `
     ${backupBanner()}
@@ -1638,10 +1776,23 @@ function renderData() {
       ${columnChart(freq, { integer: true })}
     </div>
 
-    ${kinds.lifting + kinds.cardio + kinds.mixed ? `
+    ${clock.counted ? `
+    <div class="card">
+      <div class="card-title">When you train</div>
+      <div class="card-sub">${busiest && busiest.count
+        ? `Most often ${busiest.label.toLowerCase()} &middot; ${plural(clock.counted, 'workout')} with a time`
+        : plural(clock.counted, 'workout')}</div>
+      ${columnChart(clockBars, { integer: true })}
+      ${clock.unset ? `<p class="small muted" style="margin:8px 0 0">
+        ${plural(clock.unset, 'workout')} logged after the fact ${clock.unset === 1 ? 'has' : 'have'}
+        no time set, so ${clock.unset === 1 ? 'it is' : 'they are'} left out. Tap the time on a day in
+        the calendar to fill ${clock.unset === 1 ? 'it' : 'them'} in.</p>` : ''}
+    </div>` : ''}
+
+    ${splitSegments.length ? `
     <div class="card">
       <div class="card-title">What kind of training</div>
-      <div class="card-sub">${inRange.length} workout${inRange.length === 1 ? '' : 's'} by type</div>
+      <div class="card-sub">${plural(inRange.length, 'workout')} by type</div>
       ${stackedBar(splitSegments)}
       <div class="viz-legend">
         ${splitSegments.map((s) => `
@@ -2609,8 +2760,10 @@ document.addEventListener('click', (ev) => {
     }
 
     case 'plan-back': {
-      /* Clear the last answered step and re-ask it. */
-      const answered = PLAN_STEPS.filter((s) => planAnswers[s.key] !== undefined);
+      /* Clear the last answered step and re-ask it. Walks the steps that
+         actually applied, so going back past a skipped question doesn't
+         strand you on one that is no longer being asked. */
+      const answered = planSteps(planAnswers).filter((s) => planAnswers[s.key] !== undefined);
       if (answered.length) delete planAnswers[answered[answered.length - 1].key];
       renderPlanStep();
       break;
@@ -2731,6 +2884,7 @@ document.addEventListener('click', (ev) => {
           ['lifting', 'Weight and reps', 'Bench press, curls, leg press'],
           ['timed', 'A held time', 'Planks, dead hangs, wall sits'],
           ['cardio', 'Distance and duration', 'Runs, rides, rowing'],
+          ['practice', 'Just a duration', 'Yoga, pilates, mobility, stretching'],
         ].map(([type, title, eg]) => `
           <button class="pick" data-action="custom-type" data-type="${type}"
                   data-name="${esc(name)}" data-pick="${esc(btn.dataset.pick || '')}"
@@ -2768,8 +2922,9 @@ document.addEventListener('click', (ev) => {
     case 'log-empty': {
       const key = btn.dataset.key;
       if (!canStartOn(key)) return;
+      const at = loggedTime();
       closeSheet();
-      startSession(null, key);
+      startSession(null, key, at);
       break;
     }
 
@@ -2777,8 +2932,9 @@ document.addEventListener('click', (ev) => {
       const key = btn.dataset.key;
       const r = state.routines.find((x) => x.id === id);
       if (!r || !canStartOn(key)) return;
+      const at = loggedTime();
       closeSheet();
-      startSession(r, key);
+      startSession(r, key, at);
       break;
     }
 
@@ -2859,6 +3015,19 @@ document.addEventListener('click', (ev) => {
       break;
     }
 
+    /* Counts a run or a class up in real time, into the last set. */
+    case 'time-entry': {
+      if (timer.mode === 'stopwatch' && timer.entryId === id) { stopTimer(); return; }
+      const entry = state.active && state.active.entries.find((e) => e.id === id);
+      if (!entry) return;
+      if (!entry.sets.length) entry.sets.push(newSet(entry.type));
+      const set = entry.sets[entry.sets.length - 1];
+      startStopwatch(entry.id, set.id, 0, 'minutes');
+      keepScreenAwake();
+      render();
+      break;
+    }
+
     case 'start-rest':
       startRest(Number(state.settings.restSeconds) || 90);
       break;
@@ -2876,6 +3045,8 @@ document.addEventListener('click', (ev) => {
         const s = newSet(entry.type);
         if (entry.type === 'cardio') {
           s.distance = src.distance || '';
+          s.minutes = src.minutes || '';
+        } else if (entry.type === 'practice') {
           s.minutes = src.minutes || '';
         } else if (entry.type === 'timed') {
           s.seconds = src.seconds || '';
@@ -3099,7 +3270,40 @@ document.addEventListener('input', (ev) => {
     const row = el.closest('[data-set]');
     const card = el.closest('[data-entry]');
     const { set } = findSet(card.dataset.entry, row.dataset.set);
-    if (set) { set[el.dataset.field] = el.value; save(); }
+    if (!set) return;
+
+    /* The hour and minute boxes are one value wearing two inputs. Read both
+       out of the row rather than tracking them separately, and store the
+       total. Nothing re-renders on input, so what the user typed stays on
+       screen even though "90" in the minute box is stored as 90 and will come
+       back as 1h 30m next paint. */
+    if (el.dataset.field === 'durH' || el.dataset.field === 'durM') {
+      const h = row.querySelector('[data-field="durH"]');
+      const m = row.querySelector('[data-field="durM"]');
+      const blank = (!h || h.value === '') && (!m || m.value === '');
+      set.minutes = blank ? '' : joinDuration(h && h.value, m && m.value);
+      save();
+      return;
+    }
+
+    set[el.dataset.field] = el.value;
+    save();
+    return;
+  }
+
+  /* Correcting when a workout actually happened. Only the clock moves — the
+     calendar day stays put, so a 6am session can't slide onto the day before
+     because someone scrolled the hour past midnight. */
+  if (el.dataset.sessionTime !== undefined) {
+    const session = state.sessions.find((s) => s.id === el.dataset.sessionTime);
+    const [h, m] = String(el.value).split(':').map(Number);
+    if (!session || !el.value || isNaN(h) || isNaN(m)) return;
+    const when = new Date(session.date);
+    when.setHours(h, m, 0, 0);
+    session.date = when.toISOString();
+    session.timeSet = true;
+    save();
+    el.classList.remove('unset');
     return;
   }
 

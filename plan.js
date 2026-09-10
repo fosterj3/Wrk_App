@@ -22,6 +22,21 @@ const PLAN_GOALS = {
   general: { label: 'General fitness', blurb: 'A bit of everything, sustainably' },
 };
 
+/**
+ * What the week is actually made of.
+ *
+ * Separate from the goal on purpose: "lose weight" says nothing about whether
+ * someone wants to be under a barbell or on a mat, and the old builder assumed
+ * barbell every time. Two people with the same goal can want completely
+ * different weeks.
+ */
+const PLAN_STYLES = {
+  lift:     { label: 'Lifting', blurb: 'Barbells, dumbbells, machines' },
+  mixed:    { label: 'Lifting and cardio', blurb: 'Both, in the same week' },
+  cardio:   { label: 'Mostly cardio', blurb: 'Running, riding, rowing' },
+  mindbody: { label: 'Yoga or pilates', blurb: 'Flow, mat work, mobility' },
+};
+
 const PLAN_EQUIPMENT = {
   gym: { label: 'A full gym', blurb: 'Barbells, machines, cables' },
   dumbbell: { label: 'Dumbbells at home', blurb: 'A pair or a set, maybe a bench' },
@@ -101,6 +116,102 @@ const SCHEMES = {
 
 const PLANK_SECONDS = { new: 20, some: 30, experienced: 45 };
 
+/* ------------------------------------------------- cardio and practice days */
+
+/* What's actually available to do the cardio on. A treadmill incline walk is
+   in the gym list deliberately: it is the least punishing way to accumulate
+   real effort, which is what most people starting out need. */
+const CARDIO_KIT = {
+  gym:        { steady: 'Treadmill', hard: 'Rowing Machine', long: 'Incline Treadmill Walk' },
+  dumbbell:   { steady: 'Run',       hard: 'Jump Rope',      long: 'Cycling' },
+  bodyweight: { steady: 'Run',       hard: 'Jump Rope',      long: 'Walk' },
+};
+
+/* Minutes per session, by experience. Deliberately modest at the low end —
+   the failure mode for new runners is doing too much in week one. */
+const CARDIO_MINUTES = {
+  easy:      { new: 20, some: 30, experienced: 35 },
+  intervals: { new: 15, some: 20, experienced: 25 },
+  long:      { new: 30, some: 45, experienced: 60 },
+};
+
+const CARDIO_DAYS = {
+  easy:      { name: 'Easy Effort', kit: 'steady', minutes: 'easy' },
+  intervals: { name: 'Intervals',   kit: 'hard',   minutes: 'intervals' },
+  long:      { name: 'Long Effort', kit: 'long',   minutes: 'long' },
+};
+
+const PRACTICE_MINUTES = { new: 25, some: 40, experienced: 55 };
+
+const PRACTICE_DAYS = {
+  flow:     { name: 'Flow',            exercise: 'Vinyasa Yoga' },
+  gentle:   { name: 'Gentle',          exercise: 'Yin Yoga', scale: 1.1 },
+  control:  { name: 'Core & Control',  exercise: 'Mat Pilates' },
+  mobility: { name: 'Mobility',        exercise: 'Mobility', scale: 0.6 },
+};
+
+/* Which sessions make up the week, per style. Cardio alternates hard and easy
+   rather than stacking two hard days together; practice puts the gentle day
+   last so the week winds down. */
+const CARDIO_WEEK = {
+  2: ['easy', 'long'],
+  3: ['easy', 'intervals', 'long'],
+  4: ['easy', 'intervals', 'easy', 'long'],
+  5: ['easy', 'intervals', 'easy', 'intervals', 'long'],
+};
+
+const PRACTICE_WEEK = {
+  2: ['flow', 'gentle'],
+  3: ['flow', 'control', 'gentle'],
+  4: ['flow', 'control', 'mobility', 'gentle'],
+  5: ['flow', 'control', 'flow', 'mobility', 'gentle'],
+};
+
+/* Distinct names, so "Easy Effort" twice in a week becomes A and B and the
+   routines list stays navigable. */
+function nameRun(names) {
+  const seen = {};
+  const total = names.reduce((m, n) => ({ ...m, [n]: (m[n] || 0) + 1 }), {});
+  return names.map((n) => {
+    if (total[n] === 1) return n;
+    seen[n] = (seen[n] || 0) + 1;
+    return `${n} ${String.fromCharCode(64 + seen[n])}`;
+  });
+}
+
+function buildCardioWeek(days, equipment, level) {
+  const kit = CARDIO_KIT[equipment] || CARDIO_KIT.bodyweight;
+  const keys = CARDIO_WEEK[Math.min(5, Math.max(2, days))] || CARDIO_WEEK[3];
+  const names = nameRun(keys.map((k) => CARDIO_DAYS[k].name));
+  return keys.map((k, i) => {
+    const day = CARDIO_DAYS[k];
+    return {
+      name: names[i],
+      items: [{
+        name: kit[day.kit],
+        type: 'cardio',
+        sets: [{ minutes: CARDIO_MINUTES[day.minutes][level] }],
+      }],
+    };
+  });
+}
+
+function buildPracticeWeek(days, level) {
+  const keys = PRACTICE_WEEK[Math.min(5, Math.max(2, days))] || PRACTICE_WEEK[3];
+  const names = nameRun(keys.map((k) => PRACTICE_DAYS[k].name));
+  return keys.map((k, i) => {
+    const day = PRACTICE_DAYS[k];
+    return {
+      name: names[i],
+      items: [{
+        name: day.exercise,
+        type: 'practice',
+        sets: [{ minutes: Math.round(PRACTICE_MINUTES[level] * (day.scale || 1) / 5) * 5 }],
+      }],
+    };
+  });
+}
+
 function repeated(n, target) {
   return Array.from({ length: n }, () => ({ ...target }));
 }
@@ -112,6 +223,32 @@ function repeated(n, target) {
 function buildPlan(answers) {
   const { goal, days, equipment, level } = answers;
   const scheme = SCHEMES[goal] || SCHEMES.general;
+
+  /* No style answer means an older call site (or a test sweep): fall back to
+     what the builder did before styles existed — lifting, with cardio bolted
+     on for the goals whose scheme asked for it. */
+  const style = PLAN_STYLES[answers.style]
+    ? answers.style
+    : (scheme.cardioMin > 0 ? 'mixed' : 'lift');
+
+  if (style === 'cardio') {
+    const routines = buildCardioWeek(days, equipment, level);
+    return {
+      routines, weeklyGoal: days,
+      summary: `${days} days a week · ${plural(routines.length, 'session')}`,
+      notes: planNotes({ ...answers, style }, scheme, ['cardio']),
+    };
+  }
+
+  if (style === 'mindbody') {
+    const routines = buildPracticeWeek(days, level);
+    return {
+      routines, weeklyGoal: days,
+      summary: `${days} days a week · ${plural(routines.length, 'session')}`,
+      notes: planNotes({ ...answers, style }, scheme, ['practice']),
+    };
+  }
+
   const split = pickSplit(days, goal, level, equipment);
 
   /* One fewer set per exercise for a true beginner — early on the limit is
@@ -149,11 +286,14 @@ function buildPlan(answers) {
       });
     });
 
-    if (scheme.cardioMin > 0) {
+    /* Only when the week is meant to hold both. Someone who said "lifting"
+       does not want a treadmill block appended to every session because their
+       goal happens to be weight loss. */
+    if (style === 'mixed') {
       items.push({
-        name: equipment === 'gym' ? 'Treadmill' : 'Walk',
+        name: (CARDIO_KIT[equipment] || CARDIO_KIT.bodyweight).steady,
         type: 'cardio',
-        sets: [{ minutes: scheme.cardioMin }],
+        sets: [{ minutes: Math.max(15, scheme.cardioMin) }],
       });
     }
 
@@ -163,16 +303,42 @@ function buildPlan(answers) {
   return {
     routines,
     weeklyGoal: days,
-    summary: `${days} days a week · ${routines.length} routine${routines.length === 1 ? '' : 's'}`,
-    notes: planNotes(answers, scheme, split),
+    summary: `${days} days a week · ${plural(routines.length, 'routine')}`,
+    notes: planNotes({ ...answers, style }, scheme, split),
   };
 }
 
 /* The part that actually answers "where do I start": why this plan, and what
    to do with it once it's in the app. */
 function planNotes(answers, scheme, split) {
-  const { goal, days, equipment, level } = answers;
+  const { goal, days, equipment, level, style } = answers;
   const notes = [];
+
+  /* Cardio and practice weeks are shaped by effort and duration, not by sets
+     and reps, so almost none of the lifting advice below applies to them. */
+  if (style === 'cardio') {
+    notes.push(`The week alternates hard and easy on purpose. Two demanding sessions back to back is how people get hurt in the first month — the easy days are what let the hard ones be hard.`);
+    notes.push('On an easy day you should be able to hold a conversation the whole way. If you can\'t, it is not an easy day, and the next hard session will suffer for it.');
+    notes.push('Add roughly ten percent a week to the long session and leave the rest alone. When it starts feeling routine, add time before you add speed.');
+    if (days >= 3) {
+      notes.push('Two short strength sessions a week — squats, hinges, calf work — do more for staying injury-free than any amount of stretching. Worth adding once the running itself feels settled.');
+    }
+    if (goal === 'weightloss') {
+      notes.push('Cardio burns the calories; what you eat decides whether that adds up to anything. Neither one does it alone.');
+    }
+    return notes;
+  }
+
+  if (style === 'mindbody') {
+    notes.push('The durations are a starting point, not a target. A shorter session you actually do beats a longer one you keep putting off.');
+    notes.push('Flow days are the work; the gentle day is the point of the flow days. Both matter — skipping the easy one is how a practice turns into another thing to push through.');
+    notes.push('Cadence records these as a duration, so the chart shows consistency rather than load. That is the honest measure here: with yoga and pilates, showing up regularly is the progression.');
+    notes.push('Strength and bone density need resistance, which a mat practice does not really provide. One or two sessions a week with weights sits alongside this well if you ever want them — it is not a replacement for what you have chosen.');
+    if (goal === 'metabolic') {
+      notes.push('Regular movement of any kind helps metabolic markers, and consistency matters more than intensity. Talk to your doctor about targets — this app cannot and should not set them for you.');
+    }
+    return notes;
+  }
 
   if (split[0].startsWith('full')) {
     notes.push(`Every session trains your whole body, so each movement gets worked ${days} times a week. That beats a body-part split at this stage — more practice per movement, and missing a day costs you less.`);
@@ -188,8 +354,8 @@ function planNotes(answers, scheme, split) {
     notes.push('Once all sets hit the top of the rep range comfortably, add a bit of weight and let the reps drop back down.');
   }
 
-  if (scheme.cardioMin > 0) {
-    notes.push(`Cardio sits at the end of each session — ${scheme.cardioMin} minutes at a pace where you could hold a conversation but wouldn't want to sing. Lift first, cardio after.`);
+  if (style === 'mixed') {
+    notes.push(`Cardio sits at the end of each session — ${Math.max(15, scheme.cardioMin)} minutes at a pace where you could hold a conversation but wouldn't want to sing. Lift first, cardio after.`);
   }
 
   if (goal === 'weightloss') {

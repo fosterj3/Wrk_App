@@ -12,8 +12,8 @@ installed copy, so only the product name changed.
 
 ## What it does
 
-- **Log workouts** — add exercises, record weight × reps (lifting) or distance / minutes (cardio), tick sets off as you go.
-- **Build me a plan** — four questions (goal, days, equipment, experience) and Cadence writes you a real starting program, with notes on how to run it.
+- **Log workouts** — weight × reps for lifting, distance and time for cardio, a held time for planks, or just a duration for yoga and pilates. Tick sets off as you go.
+- **Build me a plan** — five questions (goal, days, style, equipment, experience) and Cadence writes you a real starting program, with notes on how to run it. Lifting, cardio, both, or a yoga/pilates week.
 - **Paste from your notes** — paste a workout or a whole program straight out of Notes and it becomes routines, with sets, reps and weights filled in. It shows you what it understood before saving anything.
 - **Routines** — save a workout as a template ("Push Day A") and load it instead of retyping it every session.
 - **Last time you did this** — every exercise shows what you lifted last session, with a Repeat button to copy those numbers in.
@@ -22,10 +22,10 @@ installed copy, so only the product name changed.
 - **Plate calculator** — what to load per side for any target weight.
 - **Share your week** — a square image of your week for the group chat.
 - **Alerts you can hear** — a rest alert designed to cut through music, with volume and a test button, plus the screen staying awake so it actually fires.
-- **Timers** — a rest countdown that starts on its own when you tick a set (or on demand via Start rest), and a stopwatch for held exercises like planks that writes the time straight into the set.
-- **Calendar** — month and week views showing which days you trained, colour-coded by what you did. Tap any day to see that day's workouts, log one you forgot to record, or delete one.
+- **Timers** — a rest countdown that starts on its own when you tick a set, and a stopwatch for planks, runs and classes that writes the elapsed time straight into the set.
+- **Calendar** — month and week views showing which days you trained, colour-coded by lifting, cardio, practice or a mix. Tap any day to see, add or delete a workout — and set the time you actually trained, not when you got round to logging it.
 - **Bodyweight** — log your weight, see a 7-day rolling average against a goal.
-- **Data** — charts for how often you train, what kind, your strength progression per exercise, weekly volume and cardio, and your most-trained lifts.
+- **Data** — charts for how often you train, when of day you train, what kind, your strength progression per exercise, weekly volume and cardio, and your most-trained lifts.
 - **Dark and light themes** — deep plum throughout, or plum on warm off-white. Follows your phone's setting on first run; switch it any time in Settings.
 - **Works offline** — a service worker caches the app, so it runs in the gym with no signal.
 
@@ -178,6 +178,116 @@ Days are coloured by what kind of session it was:
 Today is circled, the selected day is outlined, and paging between months or weeks moves the
 selection with you so the panel underneath always describes something you can see.
 
+
+
+## Exercise types
+
+Four, and the list is stated once in `util.js` as `EXERCISE_TYPES`:
+
+| Type | Recorded as | Examples |
+| --- | --- | --- |
+| `lifting` | weight × reps | Bench press, curls |
+| `cardio` | distance and a duration | Runs, rides, rowing |
+| `timed` | a hold in seconds | Planks, dead hangs |
+| `practice` | a duration and nothing else | Yoga, pilates, mobility |
+
+**That constant is load-bearing.** `normalizeState()` uses it as a whitelist and rewrites anything
+unrecognised to `lifting`, so adding a type without registering it there would silently destroy
+every entry using it on the next load. The library test asserts against the same constant rather
+than a copy of the list.
+
+### Practice is not cardio with the distance left blank
+
+A yoga class has a duration and no distance, no reps and no load. Filing it under `cardio` would
+have meant a permanent empty column and a "—/45min" summary; filing it under `timed` would have
+meant recording an hour of pilates as 3600 seconds.
+
+The cost of a fourth type is a fourth calendar colour, which had to be found rather than picked —
+see the chart colours section.
+
+## Durations
+
+Cardio and practice durations are stored as **total minutes**, unchanged, because that is what the
+CSV, the charts and the paste parser have always read. The hours box is an input convenience over
+that one number, not a second stored field:
+
+```
+set.minutes = 135      →  [ 2 ] h [ 15 ] m
+```
+
+Both boxes write `set.minutes` between them. Typing `90` into the minutes box stores 90 and comes
+back as `1h 30m` on the next paint — nothing re-renders while you type, so the digits you entered
+stay put until you look away.
+
+The stored value may be fractional; the stopwatch writes what it measured. Everything shown to a
+person rounds to the whole minute.
+
+> Rounding happens on the **total**, not after dividing. `119.6` minutes must read `2h 0m`, not
+> `1h 60m` — there is a test for exactly that.
+
+## A stopwatch for runs and classes
+
+The rest timer and the plank stopwatch already existed; the stopwatch now knows which field it is
+filling. `timer.field` is `'seconds'` for a hold and `'minutes'` for anything measured in minutes,
+so a 40-minute run is not recorded as `2400s`.
+
+Cardio and practice cards get a **Start** button next to *+ Set*, rather than a play icon inside
+the row — the cardio row already carries five columns and a sixth would not fit a phone.
+
+Stopping a hold offers a rest countdown. Stopping a run or a yoga class does not: resting is not
+what comes next, and the timer would only need dismissing.
+
+## When you trained
+
+The calendar shows the time of each session as an editable control — tapping it opens the native
+time picker. Only the clock moves; the calendar day is held fixed, so scrolling the hour past
+midnight cannot slide a 6am session onto the day before.
+
+The retroactive log sheet also asks for the time up front, which is the better place to fix it.
+
+### Placeholder times are excluded, not averaged
+
+A backdated session with no stated time is parked at **midday** so it lands on the right calendar
+day in every timezone. That placeholder must not become data: without care, every workout anyone
+logged late would pile up at noon and invent a lunchtime habit nobody has.
+
+Sessions carry `timeSet`. The **When you train** chart counts only the ones where it is true, and
+says in plain text how many it left out and how to fix them.
+
+Anything logged before that flag existed has no `timeSet`, so `hasRealTime()` falls back to the
+tell: the old placeholder was *exactly* `12:00:00.000`, which a real workout essentially never
+hits. A few genuine noon sessions get misread as unset. That is the right way round — the cost is
+one missing bar rather than a fabricated spike.
+
+## Plan styles
+
+The builder used to assume a barbell. It now asks what the week is actually made of, separately
+from the goal — "lose weight" says nothing about whether someone wants to be under a bar or on a
+mat:
+
+| Style | The week |
+| --- | --- |
+| `lift` | The lifting split, and nothing appended |
+| `mixed` | The lifting split with cardio at the end of each session |
+| `cardio` | Easy / interval / long sessions, alternating hard and easy |
+| `mindbody` | Flow, mat work, mobility and a gentle day |
+
+Each style stays pure to what was asked. Advice about what to add — strength work for runners,
+resistance work alongside a mat practice — goes in the notes rather than being silently inserted
+into the plan.
+
+Two details worth keeping:
+
+- **Omitting the style is still valid.** Older callers and the test sweep pass no style, and fall
+  back to what the builder did before: lifting, with cardio bolted on for the goals whose scheme
+  asked for it. There is a test pinning that.
+- **The equipment question is skipped** for a mat practice, because nothing in the answer changes
+  the plan. `PLAN_STEPS` entries can carry a `when` predicate; the step counter and the Back button
+  both walk the filtered list, so going back past a skipped question can't strand you.
+
+The sweep now covers **720 combinations** — goal × days × equipment × level × style — asserting
+every exercise exists in the library, is typed the way the library types it, has sets, has minutes
+where the type needs them, and that no routine name repeats within a week.
 
 ## The brand
 
@@ -385,20 +495,30 @@ Two deliberate choices worth knowing:
 
 ### Chart colours
 
-The three series colours are **validated, not chosen by eye** — lightness band, chroma floor,
+The four series colours are **validated, not chosen by eye** — lightness band, chroma floor,
 protanopia/deuteranopia separation, normal-vision floor, and contrast against the card surface,
 in both themes:
 
-| | Lifting | Cardio | Both |
-| --- | --- | --- | --- |
-| Dark | `#C169C3` | `#E8A020` | `#199e70` |
-| Light | `#6B2E6D` | `#A45A06` | `#166534` |
+| | Lifting | Cardio | Practice | Mixed |
+| --- | --- | --- | --- | --- |
+| Dark | `#C169C3` | `#E8A020` | `#64B4AE` | `#199e70` |
+| Light | `#6B2E6D` | `#A45A06` | `#1B7E76` | `#166534` |
 
 These are also the calendar's dot colours — one meaning, one colour, app-wide. If you change them,
 re-run the validator rather than eyeballing. Every attempt so far has failed on the first pass:
 dark amber and green once sat outside the lightness band; light amber/green collapsed to ΔE 6.8
 under protanopia; and moving lifting to a plum for the brand merged it with the cardio amber under
 tritanopia, which took a change to the *amber* to fix — see the brand section.
+
+Adding **practice** as a fourth colour was the hardest of those. The obvious choice — a blue —
+merged with the plum under deuteranopia at ΔE 10.7 against a floor of 12, because both lose their
+distinguishing channel at once. Rather than guess again, the hue/saturation/lightness space was
+searched exhaustively against the other three under all four vision types. The teal that came out
+of it is not the binding constraint any more: the worst pair in the set is the pre-existing
+lift/cardio one at ΔE 20.9.
+
+Four categorical colours is close to the practical ceiling for this. A fifth would very likely need
+a non-colour channel — shape, fill pattern — rather than another hue.
 
 Note that SVG marks need `fill`, not `background` — the `.k-lifting` class that colours an HTML
 legend swatch will render an SVG path **black**.

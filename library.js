@@ -54,4 +54,26 @@ const LIBRARY = [
   { name: 'Stair Climber', type: 'cardio', group: 'Cardio' },
   { name: 'Swimming', type: 'cardio', group: 'Cardio' },
   { name: 'Jump Rope', type: 'cardio', group: 'Cardio' },
+  /* Incline work is its own entry rather than a field on Treadmill: the whole
+     point is that it is a different effort at the same pace, so keeping the
+     history separate is what makes the progress chart mean anything. */
+  { name: 'Incline Treadmill Walk', type: 'cardio', group: 'Cardio' },
+  { name: 'Stationary Bike', type: 'cardio', group: 'Cardio' },
+  { name: 'Spin Class', type: 'cardio', group: 'Cardio' },
+  { name: 'Hiking', type: 'cardio', group: 'Cardio' },
+
+  /* Measured in minutes and nothing else — no distance, no reps. */
+  { name: 'Yoga', type: 'practice', group: 'Practice' },
+  { name: 'Vinyasa Yoga', type: 'practice', group: 'Practice' },
+  { name: 'Hatha Yoga', type: 'practice', group: 'Practice' },
+  { name: 'Hot Yoga', type: 'practice', group: 'Practice' },
+  { name: 'Yin Yoga', type: 'practice', group: 'Practice' },
+  { name: 'Pilates', type: 'practice', group: 'Practice' },
+  { name: 'Mat Pilates', type: 'practice', group: 'Practice' },
+  { name: 'Reformer Pilates', type: 'practice', group: 'Practice' },
+  { name: 'Barre', type: 'practice', group: 'Practice' },
+  { name: 'Stretching', type: 'practice', group: 'Practice' },
+  { name: 'Mobility', type: 'practice', group: 'Practice' },
+  { name: 'Foam Rolling', type: 'practice', group: 'Practice' },
+  { name: 'Tai Chi', type: 'practice', group: 'Practice' },
 ];

@@ -153,16 +153,75 @@ function sessionVolume(s) {
   return total;
 }
 
-function sessionCardioMinutes(s) {
+/* Minutes logged against the given types. Cardio and practice are counted
+   separately in the UI — an hour of yoga and an hour of intervals are not the
+   same hour, and averaging them together would flatter a quiet week. */
+function sessionMinutes(s, types) {
   let total = 0;
   s.entries.forEach((e) => {
-    if (e.type !== 'cardio') return;
+    if (!types.includes(e.type)) return;
     e.sets.forEach((set) => {
       const m = Number(set.minutes);
       if (set.minutes !== '' && !isNaN(m)) total += m;
     });
   });
   return total;
+}
+
+function sessionCardioMinutes(s) { return sessionMinutes(s, ['cardio']); }
+function sessionPracticeMinutes(s) { return sessionMinutes(s, ['practice']); }
+
+/**
+ * Does this session's clock time mean anything?
+ *
+ * New sessions carry an explicit `timeSet`. Anything logged before that flag
+ * existed does not, so fall back to the tell: backdated entries were parked at
+ * exactly 12:00:00.000, which a real workout essentially never hits. A handful
+ * of genuine noon sessions will be misread as unset — that is the right way
+ * round, since the cost is one missing bar rather than a fake lunchtime spike
+ * built out of every workout anyone ever logged late.
+ */
+function hasRealTime(s) {
+  if (typeof s.timeSet === 'boolean') return s.timeSet;
+  const d = new Date(s.date);
+  return !(d.getHours() === 12 && d.getMinutes() === 0
+    && d.getSeconds() === 0 && d.getMilliseconds() === 0);
+}
+
+/**
+ * When of day people actually train.
+ *
+ * Three-hour bands rather than 24 bars: nobody trains at "the 7 o'clock hour"
+ * consistently enough for hourly resolution to say anything, and 24 columns in
+ * 296px is a smear. Sessions whose time was never set are excluded and counted
+ * separately, so the chart can say how much it is leaving out instead of
+ * quietly averaging placeholder noon into the answer.
+ */
+const TIME_BANDS = [
+  { from: 5,  to: 8,  label: 'Early' },
+  { from: 8,  to: 11, label: 'Morning' },
+  { from: 11, to: 14, label: 'Midday' },
+  { from: 14, to: 17, label: 'Afternoon' },
+  { from: 17, to: 20, label: 'Evening' },
+  { from: 20, to: 29, label: 'Night' },   /* 29 wraps: 8pm through 4:59am */
+];
+
+function timeOfDayBands(sessions) {
+  const bands = TIME_BANDS.map((b) => ({ ...b, count: 0, volume: 0 }));
+  let unset = 0;
+
+  sessions.forEach((s) => {
+    if (!hasRealTime(s)) { unset++; return; }
+    const h = new Date(s.date).getHours();
+    /* Anything before 5am belongs to the previous evening's "Night". */
+    const hour = h < 5 ? h + 24 : h;
+    const band = bands.find((b) => hour >= b.from && hour < b.to);
+    if (!band) return;
+    band.count++;
+    band.volume += sessionVolume(s);
+  });
+
+  return { bands, unset, counted: sessions.length - unset };
 }
 
 /* Epley. Lets a 3x5 session be compared with a 3x10 one. */
@@ -522,7 +581,13 @@ function lastPerformance(sessions, name) {
 /* The one place a set turns into text. Used by the calendar, the routine list,
    and the "last time" line, so they can't drift apart. */
 function formatSet(type, set, units) {
-  if (type === 'cardio') return `${set.distance || '—'}/${set.minutes || '—'}min`;
+  /* A long ride reads as "1h 45m", not "105min" — the same reason the input
+     grew an hours box. */
+  if (type === 'cardio') {
+    const dist = set.distance ? `${set.distance} · ` : '';
+    return `${dist}${formatMinutes(set.minutes)}`;
+  }
+  if (type === 'practice') return formatMinutes(set.minutes);
   if (type === 'timed') return `${set.seconds || '—'}s`;
   return `${set.weight || '—'}${units}×${set.reps || '—'}`;
 }
@@ -623,6 +688,7 @@ function buildRecapCanvas(sessions, units) {
   const lift = tok('--series-lift', '#8b5cf6');
   const cardioCol = tok('--series-cardio', '#c98500');
   const mixed = tok('--series-mixed', '#199e70');
+  const practiceCol = tok('--series-practice', '#64B4AE');
   const line = tok('--line', '#312748');
 
   const S = 1080;
@@ -678,7 +744,10 @@ function buildRecapCanvas(sessions, units) {
 
     g.beginPath();
     g.arc(cx, dotY, 40, 0, Math.PI * 2);
-    g.fillStyle = kind === 'cardio' ? cardioCol : kind === 'mixed' ? mixed : kind ? lift : card;
+    g.fillStyle = kind === 'cardio' ? cardioCol
+      : kind === 'practice' ? practiceCol
+      : kind === 'mixed' ? mixed
+      : kind ? lift : card;
     g.fill();
     if (!kind) {
       g.strokeStyle = line;
@@ -877,8 +946,17 @@ function csvToSessions(text) {
     const minutes = cell(r, 'minutes');
     const declared = cell(r, 'type').toLowerCase();
 
-    /* Trust a Type column; otherwise infer from which numbers are filled in. */
-    const type = ['lifting', 'cardio', 'timed'].includes(declared) ? declared
+    /* Trust a Type column first, then the exercise's own name, and only then
+       guess from which numbers are filled in.
+     *
+     * The name lookup matters: "Yoga, 45 minutes" and "Treadmill, 30 minutes"
+     * are shaped identically in a CSV — minutes and no distance — so column
+     * shape alone cannot tell a practice from a cardio machine. Guessing
+     * 'practice' from bare minutes would quietly re-file every treadmill row
+     * in every CSV exported before this existed. */
+    const known = matchLibraryExact(exercise);
+    const type = EXERCISE_TYPES.includes(declared) ? declared
+      : known ? known.type
       : seconds ? 'timed'
       : (distance || minutes) ? 'cardio'
       : 'lifting';
@@ -892,6 +970,8 @@ function csvToSessions(text) {
     const set = { id: uid(), done: true };   /* it already happened */
     if (type === 'cardio') {
       set.distance = distance;
+      set.minutes = minutes;
+    } else if (type === 'practice') {
       set.minutes = minutes;
     } else if (type === 'timed') {
       set.seconds = seconds;

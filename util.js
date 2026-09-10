@@ -20,6 +20,55 @@ function plural(n, word, many) {
   return `${n} ${n === 1 ? word : (many || `${word}s`)}`;
 }
 
+/**
+ * Every exercise type the app understands.
+ *
+ * - lifting  — weight × reps
+ * - cardio   — distance and a duration
+ * - timed    — a hold measured in seconds (planks, dead hangs)
+ * - practice — a session measured in minutes and nothing else: yoga, pilates,
+ *              mobility. Distance would be meaningless and reps don't exist.
+ *
+ * Stated once because normalizeState() uses it as a whitelist — anything not
+ * on this list is rewritten to 'lifting' on load, so forgetting to add a new
+ * type here silently destroys every entry using it.
+ */
+const EXERCISE_TYPES = ['lifting', 'cardio', 'timed', 'practice'];
+
+/** Types whose sets are a duration in minutes rather than reps or seconds. */
+const MINUTE_TYPES = ['cardio', 'practice'];
+
+/* ----------------------------------------------------------- durations */
+
+/**
+ * Cardio and practice durations stay stored as **total minutes**, which is what
+ * the CSV, the charts and the paste parser have always read. Hours are a data
+ * entry convenience laid over that, not a second stored field — a 90-minute
+ * ride is one number however it was typed.
+ *
+ * The value may be fractional: the stopwatch writes what it actually measured.
+ * Everything user-facing rounds to the whole minute.
+ */
+function splitDuration(totalMinutes) {
+  /* Round the total before dividing, or 119.6 becomes "1h 60m". */
+  const t = Math.max(0, Math.round(Number(totalMinutes) || 0));
+  return { h: Math.floor(t / 60), m: t % 60 };
+}
+
+function joinDuration(hours, minutes) {
+  const h = Number(hours) || 0;
+  const m = Number(minutes) || 0;
+  const total = h * 60 + m;
+  return total > 0 ? total : 0;
+}
+
+function formatMinutes(totalMinutes) {
+  const { h, m } = splitDuration(totalMinutes);
+  if (!h && !m) return '—';
+  if (!h) return `${m} min`;
+  return m ? `${h}h ${m}m` : `${h}h`;
+}
+
 /* Weeks start Sunday, matching the calendar grid. */
 function startOfWeek(d) {
   const x = new Date(d);
@@ -119,7 +168,7 @@ function normalizeState(parsed, defaults) {
       ...e,
       id: e.id || uid(),
       name: str(e.name),
-      type: ['lifting', 'cardio', 'timed'].includes(e.type) ? e.type : 'lifting',
+      type: EXERCISE_TYPES.includes(e.type) ? e.type : 'lifting',
       sets: sets(e.sets),
     }));
 

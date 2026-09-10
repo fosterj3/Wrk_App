@@ -233,7 +233,12 @@ input,select{font:inherit}
 .set-head,.set-row{display:grid;gap:8px;align-items:center}
 .set-head{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
 .lifting .set-head,.lifting .set-row{grid-template-columns:34px 1fr 1fr 44px}
-.cardio  .set-head,.cardio  .set-row{grid-template-columns:34px 1fr 1fr 44px}
+/* Cardio carries a fifth column for the hour box. It is narrower than the
+   others because it holds one or two digits and nothing else, which keeps
+   distance and minutes readable at 375px. */
+.cardio  .set-head,.cardio  .set-row{grid-template-columns:34px 1fr .62fr .78fr 44px}
+.practice .set-head,.practice .set-row{grid-template-columns:34px 1fr 1fr 44px}
+.timed .set-head,.timed .set-row{grid-template-columns:34px 1fr 1fr 44px}
 .set-n{color:var(--muted);text-align:center;font-variant-numeric:tabular-nums}
 
 input.cell{
@@ -382,9 +387,8 @@ textarea.text:focus{outline:2px solid var(--accent);outline-offset:-1px}
 
 .cal-dots{display:flex;gap:3px;justify-content:center}
 .cal-dot{width:6px;height:6px;border-radius:50%;display:inline-block}
-.k-lifting{background:var(--accent)}
-.k-cardio{background:var(--warn)}
-.k-mixed{background:var(--good)}
+/* The .k-* colours live with the chart series further down — one meaning, one
+   colour, and only one place to change it. */
 
 /* week view: taller cells that show the workout name */
 .cal-cell.week{min-height:110px;justify-content:flex-start;gap:3px;padding:5px 3px}
@@ -417,6 +421,7 @@ textarea.text:focus{outline:2px solid var(--accent);outline-offset:-1px}
 :root{
   --series-lift:#C169C3;
   --series-cardio:#E8A020;   /* brightened: the plum lift and the old amber merged under tritanopia */
+  --series-practice:#64B4AE;
   --series-mixed:#199e70;
   --viz-grid:#3A1C3B;
   --viz-dim:#543054;
@@ -426,6 +431,7 @@ textarea.text:focus{outline:2px solid var(--accent);outline-offset:-1px}
 :root[data-theme="light"]{
   --series-lift:#6B2E6D;
   --series-cardio:#A45A06;   /* darkened: white chip labels were 3.2:1 on the old amber */
+  --series-practice:#1B7E76;
   --series-mixed:#166534;
   --viz-grid:#e5e1d6;
   --viz-dim:#cbc5b6;
@@ -436,9 +442,11 @@ textarea.text:focus{outline:2px solid var(--accent);outline-offset:-1px}
 /* the semantic dot/chip colours across the app follow the same validated set */
 .k-lifting{background:var(--series-lift)}
 .k-cardio{background:var(--series-cardio)}
+.k-practice{background:var(--series-practice)}
 .k-mixed{background:var(--series-mixed)}
 .sess.k-lifting{border-left-color:var(--series-lift);background:none}
 .sess.k-cardio{border-left-color:var(--series-cardio);background:none}
+.sess.k-practice{border-left-color:var(--series-practice);background:none}
 .sess.k-mixed{border-left-color:var(--series-mixed);background:none}
 
 .seg.wrap{flex-wrap:wrap}
@@ -477,6 +485,7 @@ select.text.slim{width:auto;flex:1;min-width:150px;padding:8px 10px;font-size:13
 .viz-seg{stroke:none}
 .viz-seg.k-lifting{fill:var(--series-lift)}
 .viz-seg.k-cardio{fill:var(--series-cardio)}
+.viz-seg.k-practice{fill:var(--series-practice)}
 .viz-seg.k-mixed{fill:var(--series-mixed)}
 .viz-hit,.viz-hit-dot{fill:transparent;cursor:pointer}
 
@@ -553,6 +562,7 @@ select.text.slim{width:auto;flex:1;min-width:150px;padding:8px 10px;font-size:13
 /* ---------- timed exercises + timer ---------- */
 .timed .set-head,.timed .set-row{grid-template-columns:34px 1fr 44px 44px}
 .pill.timed{color:var(--good);border-color:var(--done-line)}
+.pill.practice{color:var(--series-practice);border-color:var(--series-practice)}
 .timer-btn{font-size:14px}
 .timer-btn.on{background:var(--danger);border-color:var(--danger);color:var(--danger-ink)}
 .timer-bar.counting-up #timer-fill{background:var(--good)}
@@ -655,3 +665,17 @@ select.text.slim{width:auto;flex:1;min-width:150px;padding:8px 10px;font-size:13
   color:var(--muted);line-height:1;
 }
 .brand-footer .small{margin-top:6px}
+
+/* The workout time doubles as its own edit control — it looks like the text it
+   replaces until you touch it, so the day panel doesn't turn into a form. */
+.sess-meta{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+.time-edit{
+  background:transparent;border:0;padding:0;margin:0;
+  color:var(--muted);font:inherit;font-size:13px;
+  border-bottom:1px dashed var(--line);cursor:pointer;
+}
+.time-edit:hover,.time-edit:focus{color:var(--text);border-bottom-color:var(--accent-fg)}
+/* Parked at midday because it was logged after the fact — flagged so it reads
+   as "nobody has said yet", not as "you trained at noon". */
+.time-edit.unset{color:var(--accent-fg);border-bottom-style:solid}
+.time-edit::-webkit-calendar-picker-indicator{opacity:.5;cursor:pointer}

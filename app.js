@@ -132,10 +132,19 @@ function openSheet(title, html) {
   document.body.classList.add('sheet-open');
 }
 
+/* A routine offered by an incoming link, waiting on a yes or no. Declared up
+   here rather than beside its sheet because closeSheet() reads it, and a 
+   defined further down the file would be in the temporal dead zone for any
+   caller that ran during boot. */
+let pendingShared = null;
+
 function closeSheet() {
   $('#sheet').hidden = true;
   $('#sheet-body').innerHTML = '';
   document.body.classList.remove('sheet-open');
+  /* Closing the offer is an answer. Without this the stash would re-ask on
+     every reload for the rest of the tab's life. */
+  if (pendingShared) forgetShared();
 }
 
 /* -------------------------------------------------------------- rest timer */
@@ -1555,8 +1564,10 @@ function shareRoutineSheet(id) {
       <p class="small muted" style="margin:6px 0 14px">Straight into Messages, WhatsApp, wherever.</p>` : ''}
 
     <button class="btn block secondary" data-action="copy-routine-text" data-id="${r.id}">Copy as text</button>
-    <p class="small muted" style="margin:6px 0 10px">For anyone without the app. It's the same
-      format Cadence reads, so it can be pasted straight back in.</p>
+    <p class="small muted" style="margin:6px 0 10px">Works everywhere, and it's the same format
+      Cadence reads, so it pastes straight back in. <strong>Best bet for an iPhone friend who
+      keeps Cadence on their home screen</strong> — on iOS a tapped link always opens Safari, and
+      Safari's copy of the app is a separate one.</p>
     <pre class="share-preview">${esc(text)}</pre>`);
 }
 
@@ -1571,6 +1582,8 @@ function offerSharedRoutine(packed) {
   clearShareHash();
 
   if (!incoming) {
+    /* An unreadable link must not sit in the stash retrying on every reload. */
+    forgetShared();
     openSheet('That link didn\'t work', `
       <p class="small muted" style="margin-top:0">The routine in it couldn't be read — links get
         cut short when they're pasted through some apps. Ask whoever sent it to use
@@ -1590,12 +1603,20 @@ function offerSharedRoutine(packed) {
         </div>`).join('')}
     </div>
     <button class="btn block" data-action="accept-shared" style="margin-top:14px">Add to my routines</button>
-    <p class="small muted" style="margin:6px 0 0">Nothing else about your log is touched.</p>`);
+    <p class="small muted" style="margin:6px 0 0">Nothing else about your log is touched.</p>
+    ${isIos() && !isStandalone() ? `
+      <!-- iPhone keeps a home-screen web app's storage separate from Safari's,
+           and a tapped link always opens Safari. So this genuinely would land
+           in the wrong copy, and there is no way to detect or fix that from
+           here — only to say it. -->
+      <p class="small muted" style="margin:12px 0 0;padding-top:12px;border-top:1px solid var(--line)">
+        <strong>Using Cadence from your home screen?</strong> This would add it to the Safari copy
+        instead — iPhone keeps those two apart. Ask for the <strong>text</strong> version and paste
+        that into <strong>Routines &rarr; Paste from notes</strong> in the home-screen app.</p>` : ''}`);
 
   pendingShared = incoming;
 }
 
-let pendingShared = null;
 
 /* Drop the fragment so a refresh doesn't re-offer the same routine, without
    adding a history entry the back button would land on. */
@@ -1603,10 +1624,43 @@ function clearShareHash() {
   history.replaceState(null, '', location.pathname + location.search);
 }
 
-/* A link opened from a chat app arrives as a fragment on first load. */
+/**
+ * Where an incoming routine waits while the page is unstable.
+ *
+ * The fragment cannot be the only copy. Opening a shared link on a device that
+ * already has an older version installed makes the service worker activate and
+ * reload the page — and the reload lands on the URL *after* the fragment was
+ * stripped, so the offer vanished and the link looked like a plain link to the
+ * app. That is exactly what it looked like in testing.
+ *
+ * sessionStorage outlives the reload and dies with the tab, which is the right
+ * lifetime: recoverable now, gone later.
+ */
+const SHARE_STASH = 'cadence.pendingShare';
+
+function stashShared(packed) {
+  try { sessionStorage.setItem(SHARE_STASH, packed); } catch (err) { /* private mode */ }
+}
+
+function forgetShared() {
+  pendingShared = null;
+  try { sessionStorage.removeItem(SHARE_STASH); } catch (err) { /* nothing to do */ }
+}
+
+/* A link from a chat app arrives as a fragment on first load — or out of the
+   stash, if a reload happened between arriving and acting on it. */
 function checkSharedLink() {
   const match = /[#&]r=([A-Za-z0-9\-_]+)/.exec(location.hash || '');
-  if (match) offerSharedRoutine(match[1]);
+  let packed = match ? match[1] : null;
+
+  if (packed) {
+    stashShared(packed);
+    clearShareHash();
+  } else {
+    try { packed = sessionStorage.getItem(SHARE_STASH); } catch (err) { packed = null; }
+  }
+
+  if (packed) offerSharedRoutine(packed);
 }
 
 function editRoutine(id) {
@@ -3614,7 +3668,7 @@ document.addEventListener('click', (ev) => {
         name: pendingShared.name,
         items: pendingShared.items,
       });
-      pendingShared = null;
+      forgetShared();
       save();
       closeSheet();
       go('routines');
@@ -4215,6 +4269,10 @@ if ('serviceWorker' in navigator) {
   const hadController = !!navigator.serviceWorker.controller;
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (!hadController || reloading) return;
+    /* Never yank the page out from under a routine somebody is being offered.
+       The stash would bring it back, but having the sheet blink away mid-read
+       is its own bug. The update lands on the next launch instead. */
+    if (pendingShared) return;
     reloading = true;
     location.reload();
   });

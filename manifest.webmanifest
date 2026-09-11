@@ -8,6 +8,9 @@
   "orientation": "portrait",
   "background_color": "#1A0A1B",
   "theme_color": "#1A0A1B",
+  "_comment_links": "A tapped link opens the browser by default, even when the app is installed. These ask the installed app to take its own links instead, and to reuse the window it already has rather than opening a second one. Chrome and Edge honour both; iOS ignores them entirely, which is why the share sheet also offers plain text.",
+  "handle_links": "preferred",
+  "launch_handler": { "client_mode": "navigate-existing" },
   "prefer_related_applications": false,
   "related_applications": [
     {

@@ -266,12 +266,26 @@ including the domain, comfortably inside what chat apps survive.
 Names are UTF-8 encoded before base64, because `btoa` only handles Latin-1 and "Sentadilla Búlgara"
 would otherwise throw. There is a test.
 
+### The fragment cannot be the only copy
+
+The first version of this was broken on exactly the devices most likely to receive a link, and the
+way it failed is worth keeping written down.
+
+Opening a shared link on a phone that already had an older version installed made the service worker
+activate and reload the page. `checkSharedLink()` had already read the fragment and stripped it from
+the URL, so the reload landed on a fragment-less address — the offer vanished and the link looked
+like a plain link to the app. Which is exactly what it looked like in testing.
+
+The payload is now stashed in `sessionStorage` the moment it is seen, so it survives any reload, and
+the update-reload is suppressed outright while an offer is on screen. The stash is cleared when the
+user accepts, when they close the sheet (closing is an answer), and when the link turns out to be
+unreadable — otherwise a bad link would retry on every reload for the life of the tab.
+
 ### Nothing is imported silently
 
 An unreadable link — truncated by a chat app, mangled by a paste, or simply not ours — produces a
 plain explanation and a workaround, never a half-import and never a crash. The set count is capped
-at 50 per entry so a hostile or corrupt link cannot spin out a million sets. The fragment is cleared
-after it's handled, so a refresh doesn't re-offer the same routine.
+at 50 per entry so a hostile or corrupt link cannot spin out a million sets.
 
 ### Text is the other way out
 
@@ -295,6 +309,18 @@ straight back in. Two things had to be fixed to make that claim honest:
 - **`setFrom()` had no `practice` branch**, so a practice line fell through to the lifting case and
   came back with no duration at all. Anyone pasting `Yoga 45 min` out of their notes was silently
   losing the 45 — a bug that shipped with the practice type and had nothing to do with sharing.
+
+### Links and installed apps
+
+A tapped link opens the *browser*, not the installed app, unless the app asks for its own links.
+`handle_links: "preferred"` and `launch_handler: navigate-existing` in the manifest fix that on
+Chrome and Edge: the installed app takes the link, in the window it already has.
+
+**iOS ignores both**, and there is a sharper problem underneath. A home-screen web app on iPhone gets
+storage separate from Safari's, and a tapped link always opens Safari — so a link genuinely would
+import into the wrong copy of the app, and nothing in the page can detect or prevent that. The
+import sheet says so when it is running on iOS outside standalone mode, and the share sheet points
+iPhone friends at the text version, which has no such problem.
 
 ## Noticing things
 

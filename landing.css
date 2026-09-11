@@ -2,7 +2,8 @@
    and the app can never drift apart on colour. */
 
 body.landing{
-  padding-bottom:0;
+  /* No footer, so the page itself has to end with some air under it. */
+  padding-bottom:46px;
   line-height:1.6;
 }
 
@@ -118,11 +119,6 @@ body.landing{
 
 .closer{text-align:center;padding:14px 0 0}
 .closer .btn{margin-bottom:14px}
-
-.landing footer{
-  border-top:1px solid var(--line);
-  padding:26px 22px 46px;margin-top:66px;text-align:center;
-}
 
 @media (max-width:640px){
   .demo-grid{grid-template-columns:1fr}

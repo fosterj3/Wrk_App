@@ -132,19 +132,10 @@ function openSheet(title, html) {
   document.body.classList.add('sheet-open');
 }
 
-/* A routine offered by an incoming link, waiting on a yes or no. Declared up
-   here rather than beside its sheet because closeSheet() reads it, and a 
-   defined further down the file would be in the temporal dead zone for any
-   caller that ran during boot. */
-let pendingShared = null;
-
 function closeSheet() {
   $('#sheet').hidden = true;
   $('#sheet-body').innerHTML = '';
   document.body.classList.remove('sheet-open');
-  /* Closing the offer is an answer. Without this the stash would re-ask on
-     every reload for the rest of the tab's life. */
-  if (pendingShared) forgetShared();
 }
 
 /* -------------------------------------------------------------- rest timer */
@@ -1535,132 +1526,36 @@ function renderRoutines() {
 }
 
 /**
- * Hand a routine to someone else.
+ * Hand a routine to someone else, as text.
  *
- * Two ways out, because they suit different people: a link for anyone who has
- * the app or might get it, and plain text for a group chat or a coach who
- * doesn't. The text round-trips through the paste parser, so what you send can
- * be pasted straight back in — the log arrives as text and leaves as text.
+ * There was a link version of this. It encoded the routine into a URL fragment
+ * and worked in every test I could run — and failed twice on real phones, in a
+ * way I could not reproduce from a desktop browser. Two honest attempts is the
+ * limit before the feature is the problem rather than the bug.
+ *
+ * Text has no platform behaviour to get wrong: no fragments to be stripped, no
+ * installed-app-versus-browser split, no storage container to land in the wrong
+ * half of. It round-trips through the paste parser, so what you send can be
+ * pasted straight back in — the log arrives as text and leaves as text.
  */
 function shareRoutineSheet(id) {
   const r = state.routines.find((x) => x.id === id);
   if (!r) return;
-
-  const link = `${location.origin}${location.pathname}#r=${packRoutine(r)}`;
   const text = routineToText(r, state.settings.units);
 
   openSheet(`Share ${r.name}`, `
-    <p class="small muted" style="margin-top:0">The routine travels inside the link itself —
-      nothing is uploaded, and no account is needed at either end.</p>
-
-    <button class="btn block" data-action="copy-routine-link" data-id="${r.id}">Copy link</button>
-    <p class="small muted" style="margin:6px 0 14px">Whoever opens it gets asked whether to add
-      this routine. ${link.length > 1800
-        ? '<strong>This one is long</strong> — some apps shorten links; send the text instead if it arrives broken.'
-        : ''}</p>
+    <p class="small muted" style="margin-top:0">Send this to anyone. They paste it into
+      <strong>Routines &rarr; Paste from notes</strong> and get the whole routine — whatever phone
+      they're on, with or without Cadence installed.</p>
 
     ${navigator.share ? `
-      <button class="btn block secondary" data-action="share-routine-link" data-id="${r.id}">Share&hellip;</button>
-      <p class="small muted" style="margin:6px 0 14px">Straight into Messages, WhatsApp, wherever.</p>` : ''}
-
-    <button class="btn block secondary" data-action="copy-routine-text" data-id="${r.id}">Copy as text</button>
-    <p class="small muted" style="margin:6px 0 10px">Works everywhere, and it's the same format
-      Cadence reads, so it pastes straight back in. <strong>Best bet for an iPhone friend who
-      keeps Cadence on their home screen</strong> — on iOS a tapped link always opens Safari, and
-      Safari's copy of the app is a separate one.</p>
+      <button class="btn block" data-action="share-routine-text" data-id="${r.id}">Share&hellip;</button>
+      <p class="small muted" style="margin:6px 0 14px">Straight into Messages, WhatsApp, wherever.</p>
+      <button class="btn block secondary" data-action="copy-routine-text" data-id="${r.id}">Copy</button>`
+    : `
+      <button class="btn block" data-action="copy-routine-text" data-id="${r.id}">Copy</button>`}
+    <p class="small muted" style="margin:6px 0 10px">This is what they'll get:</p>
     <pre class="share-preview">${esc(text)}</pre>`);
-}
-
-/**
- * A routine arriving from someone else's link.
- *
- * Never imported silently: an unknown link should not be able to write to
- * somebody's routines without them seeing what it is first.
- */
-function offerSharedRoutine(packed) {
-  const incoming = unpackRoutine(packed);
-  clearShareHash();
-
-  if (!incoming) {
-    /* An unreadable link must not sit in the stash retrying on every reload. */
-    forgetShared();
-    openSheet('That link didn\'t work', `
-      <p class="small muted" style="margin-top:0">The routine in it couldn't be read — links get
-        cut short when they're pasted through some apps. Ask whoever sent it to use
-        <strong>Copy as text</strong> instead, then paste that into
-        <strong>Routines &rarr; Paste from notes</strong>.</p>`);
-    return;
-  }
-
-  openSheet('Someone shared a routine', `
-    <div class="card" style="margin-top:0">
-      <div class="card-title">${esc(incoming.name)}</div>
-      <div class="card-sub">${plural(incoming.items.length, 'exercise')}</div>
-      ${incoming.items.map((it) => `
-        <div class="hist-row">
-          <span>${esc(it.name)}</span>
-          <b class="muted small">${esc(summarizeItem(it) || '')}</b>
-        </div>`).join('')}
-    </div>
-    <button class="btn block" data-action="accept-shared" style="margin-top:14px">Add to my routines</button>
-    <p class="small muted" style="margin:6px 0 0">Nothing else about your log is touched.</p>
-    ${isIos() && !isStandalone() ? `
-      <!-- iPhone keeps a home-screen web app's storage separate from Safari's,
-           and a tapped link always opens Safari. So this genuinely would land
-           in the wrong copy, and there is no way to detect or fix that from
-           here — only to say it. -->
-      <p class="small muted" style="margin:12px 0 0;padding-top:12px;border-top:1px solid var(--line)">
-        <strong>Using Cadence from your home screen?</strong> This would add it to the Safari copy
-        instead — iPhone keeps those two apart. Ask for the <strong>text</strong> version and paste
-        that into <strong>Routines &rarr; Paste from notes</strong> in the home-screen app.</p>` : ''}`);
-
-  pendingShared = incoming;
-}
-
-
-/* Drop the fragment so a refresh doesn't re-offer the same routine, without
-   adding a history entry the back button would land on. */
-function clearShareHash() {
-  history.replaceState(null, '', location.pathname + location.search);
-}
-
-/**
- * Where an incoming routine waits while the page is unstable.
- *
- * The fragment cannot be the only copy. Opening a shared link on a device that
- * already has an older version installed makes the service worker activate and
- * reload the page — and the reload lands on the URL *after* the fragment was
- * stripped, so the offer vanished and the link looked like a plain link to the
- * app. That is exactly what it looked like in testing.
- *
- * sessionStorage outlives the reload and dies with the tab, which is the right
- * lifetime: recoverable now, gone later.
- */
-const SHARE_STASH = 'cadence.pendingShare';
-
-function stashShared(packed) {
-  try { sessionStorage.setItem(SHARE_STASH, packed); } catch (err) { /* private mode */ }
-}
-
-function forgetShared() {
-  pendingShared = null;
-  try { sessionStorage.removeItem(SHARE_STASH); } catch (err) { /* nothing to do */ }
-}
-
-/* A link from a chat app arrives as a fragment on first load — or out of the
-   stash, if a reload happened between arriving and acting on it. */
-function checkSharedLink() {
-  const match = /[#&]r=([A-Za-z0-9\-_]+)/.exec(location.hash || '');
-  let packed = match ? match[1] : null;
-
-  if (packed) {
-    stashShared(packed);
-    clearShareHash();
-  } else {
-    try { packed = sessionStorage.getItem(SHARE_STASH); } catch (err) { packed = null; }
-  }
-
-  if (packed) offerSharedRoutine(packed);
 }
 
 function editRoutine(id) {
@@ -3636,43 +3531,22 @@ document.addEventListener('click', (ev) => {
       shareRoutineSheet(id);
       break;
 
-    case 'copy-routine-link': {
-      const r = state.routines.find((x) => x.id === id);
-      if (!r) return;
-      copyOut(`${location.origin}${location.pathname}#r=${packRoutine(r)}`, 'Link copied');
-      break;
-    }
-
     case 'copy-routine-text': {
       const r = state.routines.find((x) => x.id === id);
       if (!r) return;
-      copyOut(routineToText(r, state.settings.units), 'Copied as text');
+      copyOut(routineToText(r, state.settings.units), 'Copied');
       break;
     }
 
-    case 'share-routine-link': {
+    /* The text goes in the message body, not as a URL — a URL would be a link
+       to the app, which is not what is being shared. */
+    case 'share-routine-text': {
       const r = state.routines.find((x) => x.id === id);
       if (!r || !navigator.share) return;
       navigator.share({
         title: r.name,
-        text: `${r.name} — a routine from Cadence`,
-        url: `${location.origin}${location.pathname}#r=${packRoutine(r)}`,
-      }).catch(() => { /* dismissed */ });
-      break;
-    }
-
-    case 'accept-shared': {
-      if (!pendingShared) return;
-      state.routines.push({
-        id: uid(),
-        name: pendingShared.name,
-        items: pendingShared.items,
-      });
-      forgetShared();
-      save();
-      closeSheet();
-      go('routines');
-      toast('Routine added');
+        text: routineToText(r, state.settings.units),
+      }).catch(() => { /* dismissed, which is not an error */ });
       break;
     }
 
@@ -4269,10 +4143,6 @@ if ('serviceWorker' in navigator) {
   const hadController = !!navigator.serviceWorker.controller;
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (!hadController || reloading) return;
-    /* Never yank the page out from under a routine somebody is being offered.
-       The stash would bring it back, but having the sheet blink away mid-read
-       is its own bug. The update lands on the next launch instead. */
-    if (pendingShared) return;
     reloading = true;
     location.reload();
   });
@@ -4289,6 +4159,3 @@ go('workout');
 /* go() renders synchronously, so the elements the walkthrough points at already
    exist by here. */
 maybeOfferTour();
-
-/* A routine arriving from someone else's link, before anything else can open. */
-checkSharedLink();

@@ -29,7 +29,7 @@ installed copy, so only the product name changed.
 - **Dark and light themes** — deep plum throughout, or plum on warm off-white. Follows your phone's setting on first run; switch it any time in Settings.
 - **A walkthrough on first run** — a ten-step spotlight tour of the five tabs. Shows itself once; rerun it any time from Settings.
 - **Tells you what to aim for** — finished every set last time? It suggests the next weight. Dropped a rep? It says hold. Tap to fill it in.
-- **Send a routine to anyone** — a link that opens straight into their app, with no account at either end and nothing uploaded. Or copy it as plain text for someone who doesn't have Cadence.
+- **Send a routine to anyone** — share it as plain text, straight into Messages or WhatsApp. They paste it in and get the whole routine: any phone, with or without Cadence, no account, nothing uploaded.
 - **It notices things** — a lift stuck for three sessions, a month back after a break, a run of weeks. One observation at a time, only when it is plainly true.
 - **Tap any exercise** for its full history and progress chart.
 - **Hard to lose your data** — if a screen ever fails it offers an export rather than a blank page, and iPhone users are warned about iOS clearing storage before it bites.
@@ -244,52 +244,7 @@ locking the page — locking would have contradicted the whole "not a cage" desi
 
 ## Sharing a routine
 
-The feature nothing else in this category can do cheaply, and the reason is architectural rather
-than clever: **every competitor's routines live in an account**, so their share flow ends at a
-signup wall. Cadence's don't, so the whole routine can travel inside the link.
-
-```
-cadence/app.html#r=eyJ2IjoxLCJuIjoiUHVzaCBEYXkgQSIsImkiOlt7...
-```
-
-Everything after the `#` **is never sent to the server** — that is how fragments work. Sharing a
-routine therefore cannot leak it to GitHub Pages, or to me, which keeps the privacy claim on the
-landing page true rather than quietly undermining it. The recipient opens the link, sees what is in
-it, and taps to add. No account at either end.
-
-### Packed, because links get mangled
-
-Keys are single letters, empty fields are dropped, and identical consecutive sets collapse to a
-count — "3 × 8 @ 185" is one entry, not three. A five-exercise routine lands around 500 characters
-including the domain, comfortably inside what chat apps survive.
-
-Names are UTF-8 encoded before base64, because `btoa` only handles Latin-1 and "Sentadilla Búlgara"
-would otherwise throw. There is a test.
-
-### The fragment cannot be the only copy
-
-The first version of this was broken on exactly the devices most likely to receive a link, and the
-way it failed is worth keeping written down.
-
-Opening a shared link on a phone that already had an older version installed made the service worker
-activate and reload the page. `checkSharedLink()` had already read the fragment and stripped it from
-the URL, so the reload landed on a fragment-less address — the offer vanished and the link looked
-like a plain link to the app. Which is exactly what it looked like in testing.
-
-The payload is now stashed in `sessionStorage` the moment it is seen, so it survives any reload, and
-the update-reload is suppressed outright while an offer is on screen. The stash is cleared when the
-user accepts, when they close the sheet (closing is an answer), and when the link turns out to be
-unreadable — otherwise a bad link would retry on every reload for the life of the tab.
-
-### Nothing is imported silently
-
-An unreadable link — truncated by a chat app, mangled by a paste, or simply not ours — produces a
-plain explanation and a workaround, never a half-import and never a crash. The set count is capped
-at 50 per entry so a hostile or corrupt link cannot spin out a million sets.
-
-### Text is the other way out
-
-**Copy as text** renders a routine back into the format it arrived in:
+**Text, and only text.** Tap Share on a routine and you get the thing it probably started life as:
 
 ```
 Push Day A
@@ -298,29 +253,45 @@ Treadmill 2 mi 20 min
 Vinyasa Yoga 45 min
 ```
 
-That is for the friend without the app — and it closes the loop the paste import opened. The log
-arrives as text and leaves as text; nothing is trapped in here.
+They paste it into **Routines → Paste from notes** and have the whole routine. Any phone, with or
+without the app, no account, nothing uploaded.
 
-The text is **tested through the paste parser**, because the share sheet claims it can be pasted
-straight back in. Two things had to be fixed to make that claim honest:
+The text is **tested through the paste parser** — the share sheet claims it pastes straight back in,
+and that claim is now the only sharing mechanism, so there is no fallback behind it if it breaks.
+Weights, distances and durations all survive the round trip.
 
-- Distances were written bare, and a bare number is not a distance to the parser, so `Treadmill 2
-  20 min` lost the 2. It now writes the unit.
-- **`setFrom()` had no `practice` branch**, so a practice line fell through to the lifting case and
-  came back with no duration at all. Anyone pasting `Yoga 45 min` out of their notes was silently
-  losing the 45 — a bug that shipped with the practice type and had nothing to do with sharing.
+### Why there is no share link
 
-### Links and installed apps
+There was one. It packed the routine into a URL fragment, which is genuinely the elegant answer:
+fragments are never sent to a server, so a link could carry a whole routine without uploading
+anything or needing an account at either end. It passed every test that could be run against it.
 
-A tapped link opens the *browser*, not the installed app, unless the app asks for its own links.
-`handle_links: "preferred"` and `launch_handler: navigate-existing` in the manifest fix that on
-Chrome and Edge: the installed app takes the link, in the window it already has.
+It then failed twice on real phones, arriving as a plain link to the app with no routine attached.
+The first failure had a plausible cause — the service worker's update-reload landing after the
+fragment had been read and stripped — which was fixed and verified. It failed again anyway.
 
-**iOS ignores both**, and there is a sharper problem underneath. A home-screen web app on iPhone gets
-storage separate from Safari's, and a tapped link always opens Safari — so a link genuinely would
-import into the wrong copy of the app, and nothing in the page can detect or prevent that. The
-import sheet says so when it is running on iOS outside standalone mode, and the share sheet points
-iPhone friends at the text version, which has no such problem.
+At that point the feature was the problem, not the bug. The environment where it breaks could not be
+reproduced from a desktop browser, and shipping a third guess at somebody else's phone is not
+engineering. Text has no platform behaviour to get wrong: no fragment to be stripped, no
+installed-app-versus-browser split, no storage container to land in the wrong half of.
+
+The two platform facts that made links a bad bet are worth keeping written down, because they will
+tempt someone again:
+
+- **A tapped link opens the browser, not the installed app** — unless the app claims its own links.
+  `handle_links: "preferred"` and `launch_handler: navigate-existing` in the manifest do that on
+  Chrome and Edge. They are still there; they make plain app links open the installed app.
+- **iOS ignores both, and keeps separate storage** for a home-screen web app and Safari. A tapped
+  link always opens Safari, so it would import into a different copy of the app than the one on the
+  home screen — undetectable and unfixable from inside the page.
+
+### A link is never an exercise
+
+Shared text lands in a chat next to whatever else was said, and a URL is the likeliest neighbour.
+The parser used to turn one into an exercise named after the address, punctuation stripped, sitting
+in the routine looking like a bug. `LINK_RE` now skips anything link-shaped and reports it with the
+other unread lines — which also helps the more common case of pasting a program out of a blog or an
+email.
 
 ## Noticing things
 

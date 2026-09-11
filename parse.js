@@ -24,6 +24,11 @@ const NOISE_RE = /^(rest|notes?|remember|reminder|warm\s?-?\s?up|warmup|cool\s?-
 /* Prose giveaways — full sentences rather than an exercise name. */
 const PROSE_RE = /\b(remember|don'?t|make sure|try to|between sets|each side|as needed|if you|then do|focus on|keep the|aim for)\b|[!?]\s*$/i;
 
+/* A link is never an exercise. Programs get pasted out of chats, blogs and
+   emails, and a stray URL used to come through as an exercise named after the
+   address — punctuation stripped, sitting in the routine looking like a bug. */
+const LINK_RE = /\bhttps?:\/\/|\bwww\.|\b[a-z0-9-]+\.(?:com|org|net|io|app|co|uk|gg|me)\b/i;
+
 /* Shorthand people actually type, mapped to the library's wording. */
 const ALIASES = {
   'bench': 'barbell bench press',
@@ -379,8 +384,10 @@ function parseWorkoutText(text) {
 
     const p = readLine(line);
 
-    /* Coaching notes and stray sentences: skip, but show them to the user. */
-    if (!matchLibraryExact(p.name) && (NOISE_RE.test(line) || PROSE_RE.test(line))) {
+    /* Coaching notes, stray sentences and links: skip, but show them so the
+       user can see nothing was quietly swallowed. */
+    if (!matchLibraryExact(p.name)
+        && (NOISE_RE.test(line) || PROSE_RE.test(line) || LINK_RE.test(line))) {
       unparsed.push(trimmed);
       return;
     }

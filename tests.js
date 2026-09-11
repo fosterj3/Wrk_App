@@ -542,43 +542,9 @@ describe('sharing a routine', () => {
     { name: 'Vinyasa Yoga', type: 'practice', sets: [{ minutes: 45 }] },
   ] };
 
-  const back = unpackRoutine(packRoutine(routine));
-  eq('the name survives', back.name, 'Push Day A');
-  eq('every exercise survives with its type',
-    back.items.map((i) => `${i.name}:${i.type}`),
-    ['Barbell Bench Press:lifting', 'Plank:timed', 'Treadmill:cardio', 'Vinyasa Yoga:practice']);
-  eq('repeated sets expand back out', back.items[0].sets.length, 3);
-  eq('and keep their values', back.items[0].sets[0], { reps: 8, weight: 185 });
-  eq('cardio keeps distance and duration', back.items[2].sets[0], { minutes: 20, distance: 2 });
-
-  /* The whole feature dies if the link is too long to survive a chat app. */
-  check('a five-exercise routine fits in a sane URL', packRoutine(routine).length < 900,
-    `${packRoutine(routine).length} chars`);
-
-  /* Accents and non-Latin names must not break btoa. */
-  const accented = unpackRoutine(packRoutine({ name: 'Día de Piernas', items: [
-    { name: 'Sentadilla Búlgara', type: 'lifting', sets: [{ reps: 10 }] }] }));
-  eq('non-ASCII names survive', accented.name, 'Día de Piernas');
-  eq('and so do non-ASCII exercises', accented.items[0].name, 'Sentadilla Búlgara');
-
-  /* Anything unreadable has to come back null, not throw and not half-import. */
-  const packed = packRoutine(routine);
-  check('a truncated link is rejected', unpackRoutine(packed.slice(0, 40)) === null);
-  check('junk is rejected', unpackRoutine('not-base64-at-all!!') === null);
-  check('empty is rejected', unpackRoutine('') === null);
-  check('a future format version is rejected',
-    unpackRoutine(btoa('{"v":99,"n":"x","i":[{"n":"y"}]}').replace(/=/g, '')) === null);
-  check('valid base64 that is not ours is rejected',
-    unpackRoutine(btoa('{"hello":"world"}').replace(/=/g, '')) === null);
-
-  /* A hostile count must not be able to spin out a million sets. */
-  const huge = btoa(JSON.stringify({ v: 1, n: 'x', i: [{ n: 'Squat', t: 'lifting', s: [{ v: { r: 5 }, c: 999999 }] }] }))
-    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  check('an absurd set count is capped', unpackRoutine(huge).items[0].sets.length <= 50,
-    String(unpackRoutine(huge).items[0].sets.length));
-
-  /* The claim on the share sheet is that text can be pasted straight back in.
-     If this breaks, that sentence becomes a lie. */
+  /* The share sheet's whole promise is that this text pastes straight back in.
+     If this breaks, that sentence becomes a lie — and it is the only sharing
+     mechanism now, so there is no fallback behind it. */
   const text = routineToText(routine, 'lb');
   const reparsed = parseWorkoutText(text).routines[0];
   eq('text round-trips through the paste parser',
@@ -587,6 +553,22 @@ describe('sharing a routine', () => {
   eq('with the weights intact', reparsed.items[0].sets[0], { reps: 8, weight: 185 });
   eq('the distance intact', reparsed.items[2].sets[0].distance, 2);
   eq('and the practice duration intact', reparsed.items[3].sets[0].minutes, 45);
+
+  /* Non-ASCII names have to come through a copy-paste unharmed. */
+  const accented = routineToText({ name: 'Día de Piernas', items: [
+    { name: 'Sentadilla Búlgara', type: 'lifting', sets: [{ reps: 10 }] }] }, 'kg');
+  check('accents survive the text form', /Sentadilla Búlgara/.test(accented), accented);
+
+  /* Shared text lands in a chat next to whatever else was said, and a link is
+     the most likely neighbour. A URL must never come back as an exercise. */
+  const withLink = parseWorkoutText(`${text}\n\nGot this from https://fosterj3.github.io/Wrk_App/`);
+  eq('a pasted link is skipped, not turned into an exercise',
+    withLink.routines[0].items.map((i) => i.name),
+    ['Barbell Bench Press', 'Plank', 'Treadmill', 'Vinyasa Yoga']);
+  check('and it is reported rather than silently dropped',
+    withLink.unparsed.some((l) => /fosterj3/.test(l)), withLink.unparsed.join(' | '));
+  eq('a bare domain is skipped too',
+    parseWorkoutText('Squat 3x5\ncadence.app').routines[0].items.map((i) => i.name), ['Barbell Back Squat']);
 });
 
 /* Regression: setFrom() had no practice branch, so a practice line fell into

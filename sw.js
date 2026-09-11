@@ -3,7 +3,7 @@
    (landing) and app.html.
    The two must agree — that is what stops a new index.html from pairing with
    a stale app.js out of the browser's HTTP cache. */
-const ASSET_V = '29';
+const ASSET_V = '30';
 const CACHE = `cadence-v${ASSET_V}`;
 
 /* Same URLs the page actually requests, query string included, so the offline

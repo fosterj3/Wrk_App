@@ -3,7 +3,7 @@
 **Log the work. See the pattern.**
 
 A workout log that runs in the browser and installs to your phone's home screen.
-Log lifting and cardio, save reusable routines, and time your rest between sets.
+Lifting, running, cycling, yoga, pilates — one log, no account, works offline.
 
 **Live:** [what it is](https://fosterj3.github.io/Wrk_App/) · [the app](https://fosterj3.github.io/Wrk_App/app.html)
 
@@ -16,7 +16,7 @@ installed copy, so only the product name changed.
 - **Build me a plan** — five questions (goal, days, style, equipment, experience) and Cadence writes you a real starting program, with notes on how to run it. Lifting, cardio, both, or a yoga/pilates week.
 - **Paste from your notes** — paste a workout or a whole program straight out of Notes and it becomes routines, with sets, reps and weights filled in. It shows you what it understood before saving anything.
 - **Routines** — save a workout as a template ("Push Day A") and load it instead of retyping it every session.
-- **Last time you did this** — every exercise shows what you lifted last session, with a Repeat button to copy those numbers in.
+- **Last time you did this** — every exercise shows what you did last session, with a Repeat button to copy those numbers in.
 - **Personal records** — beat your best estimated 1RM on a lift and the app says so, once per exercise per workout.
 - **Weekly goal** — set a target and a progress ring tells you where you are and whether the week is slipping away.
 - **Plate calculator** — what to load per side for any target weight.

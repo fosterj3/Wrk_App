@@ -85,6 +85,13 @@ body.landing{
   padding:7px 0;border-bottom:1px solid var(--line);font-size:14px;
 }
 .demo-out li:last-child{border-bottom:0}
+/* A heading in the pasted text becomes a routine of its own, which is the part
+   of the parser worth showing — so the preview groups rather than listing. */
+.demo-out li.demo-head{
+  border-bottom:0;padding:12px 0 2px;
+  font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
+}
+.demo-out li.demo-head:first-child{padding-top:0}
 .demo-out span{color:var(--text)}
 .demo-out b{color:var(--accent-fg);font-variant-numeric:tabular-nums;white-space:nowrap}
 

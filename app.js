@@ -2433,6 +2433,15 @@ function renderSettings() {
   const st = state.settings;
 
   el.innerHTML = `
+    <!-- First, because the people most likely to open Settings looking for help
+         are the ones who have not found anything else yet. -->
+    <div class="card">
+      <div class="card-title">Getting started</div>
+      <p class="small muted" style="margin:6px 0 12px">A quick walkthrough of the five tabs. It
+        runs by itself the first time — this is how you see it again.</p>
+      <button class="btn block secondary" data-action="tour-start">Show me around</button>
+    </div>
+
     ${renderInstallCard()}
 
     <div class="card">
@@ -2501,6 +2510,8 @@ function renderSettings() {
       </label>
     </div>
 
+    <!-- Grouped by what you came here to do — take a copy out, put one back,
+         tidy the log — rather than by which button was added when. -->
     <div class="card">
       <div class="card-title">Your data</div>
       <p class="small muted">Everything is stored on this device only. Export now and then —
@@ -2509,28 +2520,28 @@ function renderSettings() {
           ? `Last backup ${esc(new Date(st.lastExport).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }))}.`
           : 'You have never exported.'}</p>
 
+      <h3 class="settings-group">Take a copy out</h3>
       <button class="btn block secondary" data-action="export">Backup file (.json)</button>
       <p class="small muted" style="margin:6px 0 12px">Restoreable. This is the one to keep.</p>
 
       <button class="btn block secondary" data-action="export-csv">Spreadsheet (.csv)</button>
-      <p class="small muted" style="margin:6px 0 12px">Readable anywhere — open on your phone, or
+      <p class="small muted" style="margin:6px 0 0">Readable anywhere — open on your phone, or
         email it to a coach. One row per set.</p>
 
-      <p class="small muted" id="storage-status" style="margin:0 0 12px">Checking storage…</p>
-
-      <button class="btn block secondary" data-action="tour-start">Getting started</button>
-      <p class="small muted" style="margin:6px 0 12px">A quick walkthrough of the five tabs. Runs
-        by itself the first time; here whenever you want it again.</p>
-
-      <button class="btn block secondary" data-action="exercise-names">Exercise names</button>
-      <p class="small muted" style="margin:6px 0 12px">Fix a typo or merge two spellings of the
-        same lift, so its history stays in one piece.</p>
-
+      <h3 class="settings-group">Bring one back</h3>
       <button class="btn block secondary" data-action="import">Import a file</button>
       <p class="small muted" style="margin:6px 0 0">Takes either format. A <code>.json</code> backup
         restores everything; a <code>.csv</code> brings in workouts, and asks whether to add them to
         your log or replace it.</p>
-      <button class="btn block danger" data-action="wipe" style="margin-top:14px">Erase all data</button>
+
+      <h3 class="settings-group">Tidy the log</h3>
+      <button class="btn block secondary" data-action="exercise-names">Exercise names</button>
+      <p class="small muted" style="margin:6px 0 12px">Fix a typo or merge two spellings of the
+        same exercise, so its history stays in one piece.</p>
+
+      <p class="small muted" id="storage-status" style="margin:0">Checking storage…</p>
+
+      <button class="btn block danger" data-action="wipe" style="margin-top:16px">Erase all data</button>
     </div>
 
     <div class="brand-footer">

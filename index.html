@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1A0A1B">
-<meta name="description" content="Cadence is a workout log that starts from the notes you already keep. Paste your routine, log the work, see the pattern. Free, private, works offline.">
+<meta name="description" content="Cadence is a workout log that starts from the notes you already keep. Lifting, running, yoga — paste your routine, log the work, see the pattern. Free, no account, works offline.">
 <title>Cadence — log the work, see the pattern</title>
 <link rel="icon" href="favicon-32-v2.png" sizes="32x32" type="image/png">
 <link rel="apple-touch-icon" href="favicon-180-v2.png">
@@ -30,8 +30,8 @@
 <!-- See app.html: in flight before the CSS is parsed, and crossorigin because
      fonts are always fetched in CORS mode. -->
 <link rel="preload" href="fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="styles.css?v=29">
-<link rel="stylesheet" href="landing.css?v=29">
+<link rel="stylesheet" href="styles.css?v=30">
+<link rel="stylesheet" href="landing.css?v=30">
 </head>
 <body class="landing">
 
@@ -47,8 +47,8 @@
 
     <h1>Log the work.<br>See the pattern.</h1>
     <p class="lede">
-      A workout log that starts from the notes you already keep. Paste in the routine
-      that's sitting in your phone, tick off your sets, and watch the weeks add up.
+      Paste in the routine that's already sitting in your notes app and start training.
+      Lifting, running, yoga, pilates — whatever training means to you, it goes in one log.
     </p>
 
     <div class="cta-row">
@@ -61,9 +61,10 @@
 <main class="wrap">
 
   <section class="paste-demo">
-    <h2>Start from what you've already written</h2>
+    <h2>No setup. Paste what you already have.</h2>
     <p>
-      Most people already keep their program in a notes app. Paste it in and Cadence reads it —
+      Most apps make you build your program again, one dropdown at a time. Yours is already
+      written down somewhere. Paste the whole week in and Cadence turns it into routines —
       then shows you what it understood before saving anything.
     </p>
     <div class="demo-grid">
@@ -73,65 +74,80 @@
 Bench Press 3x8 @ 185
 Incline DB Press 3 sets of 10
 Lateral Raises 3x15
-Plank 3x45s
-Treadmill 20 min</pre>
+
+Wednesday
+5k easy
+Vinyasa 45 min</pre>
       </div>
       <div class="demo-arrow" aria-hidden="true">&rarr;</div>
       <div class="demo-side">
         <div class="demo-label">What you get</div>
         <ul class="demo-out">
+          <li class="demo-head"><span>Push Day A</span></li>
           <li><span>Barbell Bench Press</span><b>3 &times; 8 @ 185</b></li>
           <li><span>Incline DB Press</span><b>3 &times; 10</b></li>
           <li><span>Dumbbell Lateral Raise</span><b>3 &times; 15</b></li>
-          <li><span>Plank</span><b>3 &times; 45s</b></li>
-          <li><span>Treadmill</span><b>20 min</b></li>
+          <li class="demo-head"><span>Wednesday</span></li>
+          <li><span>Run</span><b>5k</b></li>
+          <li><span>Vinyasa Yoga</span><b>45 min</b></li>
         </ul>
       </div>
     </div>
+    <p class="small muted" style="margin-top:14px">
+      Headings become separate routines. Shorthand like <code>bench</code>, <code>RDL</code> or
+      <code>5k</code> is matched to real exercises, and anything it doesn't recognise is kept
+      exactly as you wrote it.
+    </p>
   </section>
 
   <section>
     <h2>What it does</h2>
     <div class="features">
       <div class="feature">
-        <h3>Knows what you lifted last time</h3>
-        <p>Every exercise shows your last session's sets, so you walk up to the bar already
-          knowing the number to beat. One tap copies it in.</p>
+        <h3>One log for all of it</h3>
+        <p>Weight and reps, distance and time, a held plank, or just "45 minutes of pilates".
+          Lifting, running, cycling, yoga — it all lands in the same history instead of three
+          different apps.</p>
       </div>
       <div class="feature">
-        <h3>A calendar you can fill in late</h3>
-        <p>Colour-coded by lifting, cardio, yoga or a mix. Forgot to log Tuesday? Tap Tuesday and
-          add it — then set the time you actually trained.</p>
+        <h3>Forgot to log it? Two taps.</h3>
+        <p>Tap any past day in the calendar and fill it in — including the time you actually
+          trained, not the time you finally remembered. Missing the logging shouldn't mean
+          missing the record.</p>
+      </div>
+      <div class="feature">
+        <h3>Never guess what you did last time</h3>
+        <p>Every exercise shows your last session right above the boxes you're filling in, so you
+          know the number to beat before you start. One tap copies it across.</p>
+      </div>
+      <div class="feature">
+        <h3>Not sure where to start?</h3>
+        <p>Answer five questions and get a real week built for you — lifting, cardio, yoga or a
+          mix — with notes on how to actually run it, not just a list of exercises.</p>
       </div>
       <div class="feature">
         <h3>Charts that answer real questions</h3>
-        <p>Am I training as often as I think? Is my bench actually going up? Estimated 1RM per
-          exercise, volume per week, and how often you showed up.</p>
+        <p>Am I training as often as I think? Is it getting heavier? What time of day do I
+          actually show up? A handful of answers rather than a wall of numbers.</p>
       </div>
       <div class="feature">
-        <h3>Timers for rest, holds and runs</h3>
-        <p>Rest counts down between sets. For a plank, a run or a yoga class, the stopwatch counts
-          up and writes the time straight in.</p>
-      </div>
-      <div class="feature">
-        <h3>A weekly goal that nudges</h3>
-        <p>Set a target. If it's Thursday and you're one of three, Cadence says so — while
-          there's still time to fix it.</p>
-      </div>
-      <div class="feature">
-        <h3>Personal records, called out</h3>
-        <p>Beat your best estimated 1RM on a lift and it tells you, right when it happens.</p>
+        <h3>Timers that match the work</h3>
+        <p>Rest counts down between sets, loud enough to hear over music. For a plank, a 10k or a
+          yoga class, the stopwatch counts up and writes the time straight in.</p>
       </div>
     </div>
   </section>
 
   <section class="privacy">
-    <h2>Your data stays on your phone</h2>
+    <h2>No account. Nothing to sign up for.</h2>
     <p>
-      There is no account and no server. Everything you log lives in your own browser storage,
-      which means nobody — including me — can see your training. It also means
-      <strong>you</strong> are the backup: export a file whenever you like, as a restoreable
-      backup or as a spreadsheet you can email to a coach.
+      No email, no password, no free trial that turns into a subscription. Open it and start
+      logging. Everything you record lives in your own browser storage, so nobody — including
+      me — can see your training, because there is nowhere for it to go.
+    </p>
+    <p>
+      The trade is that <strong>you</strong> are the backup. Export a file whenever you like:
+      a restoreable backup, or a spreadsheet you can open anywhere or email to a coach.
     </p>
   </section>
 
@@ -201,7 +217,7 @@ Treadmill 20 min</pre>
   </p>
 </footer>
 
-<script src="util.js?v=29"></script>
+<script src="util.js?v=30"></script>
 <script>
   /* Someone with a log already doesn't need the sales pitch on the button. */
   (function () {

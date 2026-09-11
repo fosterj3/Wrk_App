@@ -28,6 +28,9 @@ installed copy, so only the product name changed.
 - **Data** — charts for how often you train, when of day you train, what kind, your strength progression per exercise, weekly volume and cardio, and your most-trained lifts.
 - **Dark and light themes** — deep plum throughout, or plum on warm off-white. Follows your phone's setting on first run; switch it any time in Settings.
 - **A walkthrough on first run** — a ten-step spotlight tour of the five tabs. Shows itself once; rerun it any time from Settings.
+- **Tells you what to aim for** — finished every set last time? It suggests the next weight. Dropped a rep? It says hold. Tap to fill it in.
+- **Tap any exercise** for its full history and progress chart.
+- **Hard to lose your data** — if a screen ever fails it offers an export rather than a blank page, and iPhone users are warned about iOS clearing storage before it bites.
 - **Works offline** — a service worker caches the app, so it runs in the gym with no signal.
 
 ## Installing it on your phone
@@ -234,6 +237,72 @@ viewport. Pointing at the last tab used to hang the bubble off the right edge.
 
 The ring is positioned from a viewport-relative rect, so scroll and resize reposition it rather than
 locking the page — locking would have contradicted the whole "not a cage" design.
+
+
+## When something breaks
+
+Every view is drawn through one `render()`, so that is where a thrown error is caught. Without it a
+bug anywhere in a view leaves a blank screen with a tab bar, and the user's only copy of months of
+training is sitting in storage they now have no way to reach.
+
+The recovery screen offers **Download my data** before anything else, and that export deliberately
+does *not* go through `exportData()`:
+
+```js
+localStorage.getItem(STORE_KEY)   /* straight out, untouched */
+```
+
+The tidy export reads from in-memory state — which is exactly what may be broken. Whatever is on
+disk is the thing worth rescuing, so the rescue path dumps the raw bytes and nothing else.
+
+Errors outside a render — a handler, a rejected promise — don't blank anything, so they get a toast
+with a **Save** action rather than taking the page over, and only once per session. Repeating it
+every time something throws would just train people to ignore it.
+
+## The iPhone storage warning
+
+iOS clears a site's storage after roughly a week without a visit, **unless the app is on the home
+screen**, which exempts it. So someone who opens the link in Safari, logs a month of training and
+takes a fortnight off comes back to nothing — no error, nothing to blame but the app.
+
+This was only ever mentioned in Settings → Your data, which is precisely where a new user does not
+look. It now appears on the Workout tab, to the people actually exposed: **on iOS, not installed**.
+
+- The instruction adapts — in a non-Safari iOS browser it says to open the page in Safari first,
+  because nothing else on iOS can install.
+- Dismissing snoozes it for a fortnight rather than forever. The risk does not go away by being
+  dismissed; the only thing that clears it is installing.
+- It does not appear during a live workout. Mid-set is the wrong moment for housekeeping.
+
+## Suggesting the next set
+
+The app already showed *"Last time · 185 lb × 8"* and stopped one inch short of the useful thing.
+`suggestNext()` closes that gap, and it is pure and tested because the judgement in it matters more
+than the code:
+
+| Last session | Suggestion |
+| --- | --- |
+| Every set finished at the same weight | **Try 190 × 8** |
+| A rep dropped on the last set | **Hold 185** |
+| Weights ramped rather than uniform | **Hold** |
+| Bodyweight, all sets equal | **Try 11 reps** |
+| Cardio, practice, or patchy numbers | *nothing* |
+
+**A rise is only ever suggested when every set last time hit the same weight for the same reps.**
+Adding load on top of a set you did not finish is how people stall and conclude they have stopped
+progressing — so the honest answer most weeks is "hold", and the app says it.
+
+Steps are plate-sized and group-aware: 10 lb / 5 kg for legs and back, 5 lb / 2.5 kg for everything
+else. A lateral raise and a squat do not move in the same increments.
+
+Tapping fills every set. Ignoring it costs nothing — it is an offer, not a target, and it is styled
+to read that way.
+
+## Tapping an exercise
+
+The name in a workout card opens that exercise's whole history: the estimated-1RM line, the best
+ever, and every session listed. It was the gesture everyone tried first and the only route to the
+same information used to be a dropdown in the Data tab, which nobody finds mid-workout.
 
 ## Exercise types
 

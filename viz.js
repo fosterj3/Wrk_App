@@ -224,6 +224,66 @@ function timeOfDayBands(sessions) {
   return { bands, unset, counted: sessions.length - unset };
 }
 
+/* ------------------------------------------------------ what to aim for */
+
+/* Big lower-body lifts move in bigger steps — the smallest plate jump that
+   matters on a squat is not the one that matters on a lateral raise. */
+const BIG_GROUPS = ['Legs', 'Back'];
+
+function weightStep(group, units) {
+  const big = BIG_GROUPS.includes(group);
+  if (units === 'kg') return big ? 5 : 2.5;
+  return big ? 10 : 5;
+}
+
+/**
+ * What to aim for this session, based only on what actually happened last time.
+ *
+ * Deliberately conservative, and deliberately not automatic encouragement:
+ * a rise is suggested **only** when every set last time hit the same weight for
+ * the same reps. Miss a rep on the last set and it says hold, because adding
+ * weight on top of a set you didn't finish is how people stall and conclude
+ * they've stopped progressing.
+ *
+ * Returns null when there is nothing honest to say — a first session, a
+ * duration-based exercise, or numbers too patchy to read.
+ *
+ * @returns {{weight:string, reps:string, label:string, hold:boolean}|null}
+ */
+function suggestNext(type, lastSets, group, units) {
+  if (type !== 'lifting' || !Array.isArray(lastSets) || !lastSets.length) return null;
+
+  const sets = lastSets.map((s) => ({ w: Number(s.weight), r: Number(s.reps), rawW: s.weight }));
+  /* Reps are required; weight may legitimately be absent for bodyweight work. */
+  if (sets.some((s) => !isFinite(s.r) || s.r <= 0)) return null;
+  if (sets.some((s) => s.rawW !== '' && s.rawW != null && !isFinite(s.w))) return null;
+
+  const bodyweight = sets.every((s) => s.rawW === '' || s.rawW == null || s.w === 0);
+  const topReps = Math.max(...sets.map((s) => s.r));
+  const uniform = sets.every((s) => s.r === sets[0].r)
+    && sets.every((s) => s.w === sets[0].w);
+
+  /* Nothing to load, so progress is one more rep rather than more weight. */
+  if (bodyweight) {
+    if (!uniform) return { weight: '', reps: String(topReps), label: `Hold at ${topReps} reps`, hold: true };
+    return { weight: '', reps: String(sets[0].r + 1), label: `Try ${sets[0].r + 1} reps`, hold: false };
+  }
+
+  if (!uniform) {
+    const top = Math.max(...sets.map((s) => s.w));
+    return {
+      weight: String(top), reps: String(topReps),
+      label: `Hold ${top} ${units}`, hold: true,
+    };
+  }
+
+  const next = Math.round((sets[0].w + weightStep(group, units)) * 10) / 10;
+  return {
+    weight: String(next), reps: String(sets[0].r),
+    label: `Try ${next} ${units} × ${sets[0].r}`, hold: false,
+  };
+}
+
 /* Epley. Lets a 3x5 session be compared with a 3x10 one. */
 function e1rm(weight, reps) {
   return reps > 0 ? weight * (1 + reps / 30) : weight;

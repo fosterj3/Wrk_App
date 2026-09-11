@@ -15,7 +15,7 @@ const DEFAULTS = {
   settings: {
     units: 'lb', restSeconds: 90, calendarView: 'month', theme: null,
     weeklyGoal: 3, barWeight: 45, lastExport: null, backupSnooze: null,
-    alertSound: 'beep', alertVolume: 0.9, keepAwake: true,
+    alertSound: 'beep', alertVolume: 0.9, keepAwake: true, iosWarnSnooze: null,
     /* null = never offered. Set once the walkthrough is finished or skipped,
        so it introduces itself exactly once and afterwards only on request. */
     tourDone: null,
@@ -579,7 +579,25 @@ function endTour(completed) {
   else render();
 }
 
+/**
+ * Everything the app draws goes through here, so this is where a thrown error
+ * has to be caught.
+ *
+ * Without it a bug anywhere in a view leaves a blank screen with a tab bar,
+ * and the user's only copy of months of training is sitting in storage they
+ * now have no way to reach. A broken app they can export from is an annoyance;
+ * a blank one is a loss.
+ */
 function render() {
+  try {
+    drawView();
+  } catch (err) {
+    console.error('Render failed', err);
+    showRecovery(err);
+  }
+}
+
+function drawView() {
   if (currentView === 'workout') renderWorkout();
   if (currentView === 'routines') renderRoutines();
   if (currentView === 'calendar') renderCalendar();
@@ -592,6 +610,111 @@ function render() {
       detectInstalled().then((was) => { if (was === true && currentView === 'settings') renderSettings(); });
     }
   }
+}
+
+function showRecovery(err) {
+  const el = document.getElementById(`view-${currentView}`) || $('#main');
+  el.hidden = false;
+  el.innerHTML = `
+    <div class="card" style="margin-top:16px">
+      <div class="card-title">This screen didn't load</div>
+      <p class="small muted" style="margin:6px 0 14px">Something went wrong drawing this tab.
+        <strong>Your training is still saved</strong> — nothing has been deleted. Take a copy
+        before anything else, then try again.</p>
+      <button class="btn block" data-action="rescue-export">Download my data</button>
+      <p class="small muted" style="margin:6px 0 14px">Saves everything straight from storage,
+        without going through the part that just broke.</p>
+      <button class="btn block secondary" data-action="rescue-reload">Reload the app</button>
+      <p class="small muted" style="margin:14px 0 0">
+        If it keeps happening, this is the detail worth reporting:<br>
+        <code>${esc(String((err && err.message) || err))}</code></p>
+    </div>`;
+}
+
+/**
+ * The export of last resort: straight from localStorage, untouched.
+ *
+ * Deliberately does not build the tidy payload exportData() produces, because
+ * the state it would read from is exactly what may be broken. Whatever is on
+ * disk is the thing worth rescuing.
+ */
+function rescueExport() {
+  let raw;
+  try { raw = localStorage.getItem(STORE_KEY); } catch (e) { raw = null; }
+  if (!raw) { alert('There is nothing saved in this browser to export.'); return; }
+
+  const blob = new Blob([raw], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `cadence-rescue-${stamp()}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/**
+ * Errors outside a render — in an event handler, or a rejected promise.
+ *
+ * These don't blank the screen, so they get a banner rather than taking the
+ * page over. Shown once per session: repeating it every time a handler throws
+ * would train people to ignore it.
+ */
+let troubleShown = false;
+
+function reportTrouble() {
+  if (troubleShown) return;
+  troubleShown = true;
+  toast('Something went wrong. Worth saving a backup.', {
+    label: 'Save', run: () => rescueExport(),
+  });
+}
+
+window.addEventListener('error', reportTrouble);
+window.addEventListener('unhandledrejection', reportTrouble);
+
+/**
+ * One exercise's whole story: the chart, the best ever, and every session.
+ *
+ * Tapping the name is what everyone tries first, and it used to do nothing —
+ * the only route to this was the Data tab's dropdown, which nobody finds
+ * mid-workout when the question is "what did I do last month".
+ */
+function openExerciseHistory(name) {
+  const sessions = state.sessions.filter((s) => s.entries.some((e) => e.name === name));
+  const units = state.settings.units;
+
+  if (!sessions.length) {
+    openSheet(name, '<p class="small muted">Nothing logged for this yet. Once you have, this is where its history lives.</p>');
+    return;
+  }
+
+  const type = sessions[0].entries.find((e) => e.name === name).type;
+  const best = type === 'lifting' ? bestE1rm(state.sessions, name) : 0;
+
+  /* Oldest-first line, same maths as the Data tab so the two can't disagree. */
+  const points = exerciseSeries([...sessions].reverse().reverse(), name, 'e1rm')
+    .map((p) => ({ ...p, tip: `${p.full}\n${p.value} ${units} est. 1RM` }));
+
+  const rows = sessions.slice(0, 30).map((s) => {
+    const entry = s.entries.find((e) => e.name === name);
+    const when = new Date(s.date).toLocaleDateString(undefined,
+      { weekday: 'short', month: 'short', day: 'numeric' });
+    return `
+      <div class="hist-row">
+        <span class="muted small">${esc(when)}</span>
+        <b>${esc(summarizeSets(entry, units))}</b>
+      </div>`;
+  }).join('');
+
+  openSheet(name, `
+    <p class="small muted" style="margin-top:0">
+      ${plural(sessions.length, 'session')}${best ? ` &middot; best ${Math.round(best)} ${esc(units)} est. 1RM` : ''}
+    </p>
+    ${points.length > 1 ? lineChart(points, (v) => `${v}`) : ''}
+    <div class="hist-list">${rows}</div>
+    ${sessions.length > 30 ? `<p class="small muted">Showing the last 30 of ${sessions.length}.</p>` : ''}`);
 }
 
 /* ------------------------------------------------- goal, backup, plates */
@@ -619,6 +742,44 @@ function goalCard() {
 
 /* Local-only storage means a cleared browser wipes everything, so nag — but
    gently, and only once there is something worth losing. */
+/**
+ * The one warning that has to reach people before they need it.
+ *
+ * iOS clears a site's storage after roughly a week without a visit — unless
+ * the app is on the home screen, which exempts it. So someone who opens the
+ * link in Safari, logs a month of training and takes a fortnight off comes
+ * back to nothing, with no error and nothing to blame but the app.
+ *
+ * It was only ever mentioned in Settings → Your data, which is precisely where
+ * a new user does not look. Shown on the Workout tab instead, to the people
+ * actually exposed: on iOS, not installed.
+ */
+function iosStorageBanner() {
+  if (!isIos() || isStandalone()) return '';
+
+  const snoozed = state.settings.iosWarnSnooze ? +new Date(state.settings.iosWarnSnooze) : 0;
+  if (snoozed && Date.now() - snoozed < 14 * 86400000) return '';
+
+  /* Only Safari can install on iOS, so the instruction has to differ. */
+  const wrongBrowser = isIosWrongBrowser();
+  const how = wrongBrowser
+    ? `Open this page in Safari — ${esc(iosBrowserName())} can't add it — then Share &rarr; Add to Home Screen.`
+    : 'Tap Share &rarr; Add to Home Screen. It takes five seconds and fixes it permanently.';
+
+  return `
+    <div class="banner">
+      <div class="grow">
+        <strong>Add Cadence to your home screen</strong>
+        <div class="small">iPhone deletes a website's saved data after about a week of not
+          visiting it. Your log is only safe from that once the app is on your home screen.
+          ${how}</div>
+      </div>
+      <div class="row">
+        <button class="ghost" data-action="snooze-ios">Later</button>
+      </div>
+    </div>`;
+}
+
 function backupBanner() {
   if (state.sessions.length < 5) return '';
 
@@ -945,6 +1106,7 @@ function renderWorkout() {
   if (!a) {
     action.hidden = true;
     el.innerHTML = `
+      ${iosStorageBanner()}
       ${backupBanner()}
       ${goalCard()}
       <div class="empty">
@@ -1055,7 +1217,8 @@ function renderEntry(entry, index, all) {
             aria-label="Delete ${esc(entry.name)}">Delete</button>
     <div class="card ex swipe-face ${entry.type}" data-entry="${entry.id}">
     <div class="ex-head">
-      <span class="ex-name">${esc(entry.name)}</span>
+      <button class="ex-name" data-action="exercise-history" data-name="${esc(entry.name)}"
+              title="See your history for this">${esc(entry.name)}</button>
       ${isPr ? '<span class="pill pr">PR</span>' : ''}
       <span class="pill ${entry.type}">${entry.type}</span>
       <div class="spacer"></div>
@@ -1070,7 +1233,25 @@ function renderEntry(entry, index, all) {
         <span class="muted">Last time &middot; ${esc(last.date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }))}</span>
         <b>${esc(summarizeSets(last, state.settings.units))}</b>
         <button class="linkish" data-action="repeat-last" data-id="${entry.id}">Repeat</button>
-      </div>` : ''}
+      </div>
+      ${(() => {
+        /* The step from "here's what you did" to "here's what to do" — the
+           whole difference between a log and something that helps. A
+           suggestion, not a target: tapping fills it in, ignoring it costs
+           nothing. */
+        const lib = matchLibraryExact(entry.name);
+        const next = suggestNext(entry.type, last.sets, lib && lib.group, state.settings.units);
+        if (!next) return '';
+        return `
+          <button class="suggest ${next.hold ? 'hold' : ''}" data-action="apply-suggestion"
+                  data-id="${entry.id}" data-weight="${esc(next.weight)}" data-reps="${esc(next.reps)}"
+                  title="Fill every set with this">
+            <span class="suggest-label">${esc(next.label)}</span>
+            <span class="suggest-why">${next.hold
+              ? 'you dropped a rep last time'
+              : 'you finished every set'}</span>
+          </button>`;
+      })()}` : ''}
 
     <div class="set-grid">
       <div class="set-head">${cols.map((c) => `<div>${c}</div>`).join('')}</div>
@@ -3270,6 +3451,31 @@ document.addEventListener('click', (ev) => {
       break;
     }
 
+    case 'exercise-history':
+      openExerciseHistory(btn.dataset.name);
+      break;
+
+    case 'apply-suggestion': {
+      const entry = state.active && state.active.entries.find((e) => e.id === id);
+      if (!entry) return;
+      const { weight, reps } = btn.dataset;
+      entry.sets.forEach((s) => {
+        if (weight !== '') s.weight = weight;
+        s.reps = reps;
+      });
+      save();
+      render();
+      break;
+    }
+
+    case 'rescue-export':
+      rescueExport();
+      break;
+
+    case 'rescue-reload':
+      location.reload();
+      break;
+
     case 'tour-start':
       closeSheet();
       startTour();
@@ -3334,6 +3540,14 @@ document.addEventListener('click', (ev) => {
 
     case 'snooze-backup':
       state.settings.backupSnooze = new Date().toISOString();
+      save();
+      render();
+      break;
+
+    /* Two weeks, not forever: the risk doesn't go away by being dismissed, and
+       the only thing that actually clears it is installing. */
+    case 'snooze-ios':
+      state.settings.iosWarnSnooze = new Date().toISOString();
       save();
       render();
       break;

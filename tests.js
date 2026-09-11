@@ -531,6 +531,43 @@ describe('stats', () => {
   eq('trend counts the weigh-ins', trend.count, 3);
 });
 
+/* ------------------------------------------------------ what to aim for */
+
+describe('next-set suggestion', () => {
+  const sets = (...pairs) => pairs.map(([weight, reps]) => ({ weight, reps }));
+
+  /* Finished every set at the same weight: earn the increase. */
+  const up = suggestNext('lifting', sets(['185', '8'], ['185', '8'], ['185', '8']), 'Chest', 'lb');
+  eq('a finished session earns a rise', [up.weight, up.reps, up.hold], ['190', '8', false]);
+
+  /* Big lifts move in bigger steps than a lateral raise. */
+  eq('legs go up by ten', suggestNext('lifting', sets(['225', '5'], ['225', '5']), 'Legs', 'lb').weight, '235');
+  eq('kilos use plate-sized steps',
+    suggestNext('lifting', sets(['100', '5'], ['100', '5']), 'Legs', 'kg').weight, '105');
+  eq('and smaller ones for arms',
+    suggestNext('lifting', sets(['30', '12'], ['30', '12']), 'Arms', 'lb').weight, '35');
+
+  /* The part that matters most: adding weight on top of a set you did not
+     finish is how people stall and decide they have stopped progressing. */
+  const held = suggestNext('lifting', sets(['185', '8'], ['185', '8'], ['185', '6']), 'Chest', 'lb');
+  check('a dropped rep means hold, not more weight', held.hold && held.weight === '185', JSON.stringify(held));
+  const ramped = suggestNext('lifting', sets(['135', '8'], ['185', '5']), 'Chest', 'lb');
+  check('uneven weights also hold', ramped.hold, JSON.stringify(ramped));
+
+  /* Nothing to load, so progress is a rep. */
+  eq('bodyweight adds a rep',
+    suggestNext('lifting', sets(['', '10'], ['', '10']), 'Back', 'lb').reps, '11');
+  check('bodyweight holds after a drop',
+    suggestNext('lifting', sets(['', '10'], ['', '7']), 'Back', 'lb').hold);
+
+  /* Silence is the right answer when there is nothing honest to say. */
+  check('cardio gets no suggestion', suggestNext('cardio', [{ distance: '5', minutes: 30 }], 'Cardio', 'lb') === null);
+  check('practice gets no suggestion', suggestNext('practice', [{ minutes: 45 }], 'Practice', 'lb') === null);
+  check('a set with no reps gets none', suggestNext('lifting', sets(['185', '']), 'Chest', 'lb') === null);
+  check('no history gets none', suggestNext('lifting', [], 'Chest', 'lb') === null);
+  check('junk gets none', suggestNext('lifting', sets(['abc', '8']), 'Chest', 'lb') === null);
+});
+
 /* ---------------------------------------------------------- time of day */
 
 describe('when you trained', () => {

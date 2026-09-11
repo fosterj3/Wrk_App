@@ -735,3 +735,34 @@ select.text.slim{width:auto;flex:1;min-width:150px;padding:8px 10px;font-size:13
   font-size:11px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;
   color:var(--muted);margin:20px 0 8px;
 }
+
+/* The next-set suggestion. Sits under "last time" as an offer, not an
+   instruction — quiet enough to ignore, tappable when it's right. */
+.suggest{
+  display:flex;align-items:baseline;gap:8px;width:100%;text-align:left;
+  background:transparent;border:1px dashed var(--pill-lift-line);border-radius:10px;
+  padding:7px 10px;margin:2px 0 10px;color:var(--accent-fg);
+}
+.suggest:active{background:var(--surface-2)}
+.suggest-label{font-weight:650;font-size:13px}
+.suggest-why{font-size:12px;color:var(--muted)}
+/* Holding is not a lesser outcome, so it is not styled as a warning — just
+   without the forward-looking accent. */
+.suggest.hold{color:var(--muted);border-color:var(--line)}
+.suggest.hold .suggest-label{color:var(--text)}
+
+/* The exercise name doubles as the way into its history, so it has to look
+   tappable without turning the card header into a button bar. */
+button.ex-name{
+  background:none;border:0;padding:0;margin:0;text-align:left;
+  font:inherit;font-weight:650;color:var(--text);
+  border-bottom:1px dotted var(--pill-lift-line);
+}
+button.ex-name:active{color:var(--accent-fg)}
+
+.hist-list{margin-top:12px;border-top:1px solid var(--line)}
+.hist-row{
+  display:flex;align-items:baseline;justify-content:space-between;gap:12px;
+  padding:8px 0;border-bottom:1px solid var(--line);
+}
+.hist-row b{font-variant-numeric:tabular-nums;font-weight:600;text-align:right}

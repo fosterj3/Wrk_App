@@ -29,6 +29,8 @@ installed copy, so only the product name changed.
 - **Dark and light themes** — deep plum throughout, or plum on warm off-white. Follows your phone's setting on first run; switch it any time in Settings.
 - **A walkthrough on first run** — a ten-step spotlight tour of the five tabs. Shows itself once; rerun it any time from Settings.
 - **Tells you what to aim for** — finished every set last time? It suggests the next weight. Dropped a rep? It says hold. Tap to fill it in.
+- **Send a routine to anyone** — a link that opens straight into their app, with no account at either end and nothing uploaded. Or copy it as plain text for someone who doesn't have Cadence.
+- **It notices things** — a lift stuck for three sessions, a month back after a break, a run of weeks. One observation at a time, only when it is plainly true.
 - **Tap any exercise** for its full history and progress chart.
 - **Hard to lose your data** — if a screen ever fails it offers an export rather than a blank page, and iPhone users are warned about iOS clearing storage before it bites.
 - **Works offline** — a service worker caches the app, so it runs in the gym with no signal.
@@ -238,6 +240,82 @@ viewport. Pointing at the last tab used to hang the bubble off the right edge.
 The ring is positioned from a viewport-relative rect, so scroll and resize reposition it rather than
 locking the page — locking would have contradicted the whole "not a cage" design.
 
+
+
+## Sharing a routine
+
+The feature nothing else in this category can do cheaply, and the reason is architectural rather
+than clever: **every competitor's routines live in an account**, so their share flow ends at a
+signup wall. Cadence's don't, so the whole routine can travel inside the link.
+
+```
+cadence/app.html#r=eyJ2IjoxLCJuIjoiUHVzaCBEYXkgQSIsImkiOlt7...
+```
+
+Everything after the `#` **is never sent to the server** — that is how fragments work. Sharing a
+routine therefore cannot leak it to GitHub Pages, or to me, which keeps the privacy claim on the
+landing page true rather than quietly undermining it. The recipient opens the link, sees what is in
+it, and taps to add. No account at either end.
+
+### Packed, because links get mangled
+
+Keys are single letters, empty fields are dropped, and identical consecutive sets collapse to a
+count — "3 × 8 @ 185" is one entry, not three. A five-exercise routine lands around 500 characters
+including the domain, comfortably inside what chat apps survive.
+
+Names are UTF-8 encoded before base64, because `btoa` only handles Latin-1 and "Sentadilla Búlgara"
+would otherwise throw. There is a test.
+
+### Nothing is imported silently
+
+An unreadable link — truncated by a chat app, mangled by a paste, or simply not ours — produces a
+plain explanation and a workaround, never a half-import and never a crash. The set count is capped
+at 50 per entry so a hostile or corrupt link cannot spin out a million sets. The fragment is cleared
+after it's handled, so a refresh doesn't re-offer the same routine.
+
+### Text is the other way out
+
+**Copy as text** renders a routine back into the format it arrived in:
+
+```
+Push Day A
+Barbell Bench Press 3x8 @ 185lb
+Treadmill 2 mi 20 min
+Vinyasa Yoga 45 min
+```
+
+That is for the friend without the app — and it closes the loop the paste import opened. The log
+arrives as text and leaves as text; nothing is trapped in here.
+
+The text is **tested through the paste parser**, because the share sheet claims it can be pasted
+straight back in. Two things had to be fixed to make that claim honest:
+
+- Distances were written bare, and a bare number is not a distance to the parser, so `Treadmill 2
+  20 min` lost the 2. It now writes the unit.
+- **`setFrom()` had no `practice` branch**, so a practice line fell through to the lifting case and
+  came back with no duration at all. Anyone pasting `Yoga 45 min` out of their notes was silently
+  losing the 45 — a bug that shipped with the practice type and had nothing to do with sharing.
+
+## Noticing things
+
+Every other app in this category hands you charts and leaves the interpreting to you. This says the
+thing out loud:
+
+> *Barbell Bench Press has sat at 185 lb for three sessions. Dropping about 10% and building back
+> usually beats grinding at it.*
+
+Three rules keep it from becoming noise:
+
+- **One at a time.** A column of observations is a feed, and a feed is something people learn to
+  scroll past.
+- **Only when plainly true.** A stall needs *three* sessions at the same weight — two is a normal
+  fortnight, and calling that a plateau is the kind of wrongness that stops anyone believing the
+  next one.
+- **Dismissing hides that observation, not the feature.** Each carries a stable id; dismissing a
+  stall you already know about for a fortnight still lets a new one through.
+
+Ordered by usefulness rather than by how nice they are to read — coming back after a break comes
+first, because it is the only one that changes what you should do in the next hour.
 
 ## When something breaks
 

@@ -531,6 +531,114 @@ describe('stats', () => {
   eq('trend counts the weigh-ins', trend.count, 3);
 });
 
+/* ------------------------------------------------------ sharing a routine */
+
+describe('sharing a routine', () => {
+  const routine = { id: 'x', name: 'Push Day A', items: [
+    { name: 'Barbell Bench Press', type: 'lifting',
+      sets: [{ reps: 8, weight: 185 }, { reps: 8, weight: 185 }, { reps: 8, weight: 185 }] },
+    { name: 'Plank', type: 'timed', sets: [{ seconds: 45 }, { seconds: 45 }] },
+    { name: 'Treadmill', type: 'cardio', sets: [{ distance: 2, minutes: 20 }] },
+    { name: 'Vinyasa Yoga', type: 'practice', sets: [{ minutes: 45 }] },
+  ] };
+
+  const back = unpackRoutine(packRoutine(routine));
+  eq('the name survives', back.name, 'Push Day A');
+  eq('every exercise survives with its type',
+    back.items.map((i) => `${i.name}:${i.type}`),
+    ['Barbell Bench Press:lifting', 'Plank:timed', 'Treadmill:cardio', 'Vinyasa Yoga:practice']);
+  eq('repeated sets expand back out', back.items[0].sets.length, 3);
+  eq('and keep their values', back.items[0].sets[0], { reps: 8, weight: 185 });
+  eq('cardio keeps distance and duration', back.items[2].sets[0], { minutes: 20, distance: 2 });
+
+  /* The whole feature dies if the link is too long to survive a chat app. */
+  check('a five-exercise routine fits in a sane URL', packRoutine(routine).length < 900,
+    `${packRoutine(routine).length} chars`);
+
+  /* Accents and non-Latin names must not break btoa. */
+  const accented = unpackRoutine(packRoutine({ name: 'Día de Piernas', items: [
+    { name: 'Sentadilla Búlgara', type: 'lifting', sets: [{ reps: 10 }] }] }));
+  eq('non-ASCII names survive', accented.name, 'Día de Piernas');
+  eq('and so do non-ASCII exercises', accented.items[0].name, 'Sentadilla Búlgara');
+
+  /* Anything unreadable has to come back null, not throw and not half-import. */
+  const packed = packRoutine(routine);
+  check('a truncated link is rejected', unpackRoutine(packed.slice(0, 40)) === null);
+  check('junk is rejected', unpackRoutine('not-base64-at-all!!') === null);
+  check('empty is rejected', unpackRoutine('') === null);
+  check('a future format version is rejected',
+    unpackRoutine(btoa('{"v":99,"n":"x","i":[{"n":"y"}]}').replace(/=/g, '')) === null);
+  check('valid base64 that is not ours is rejected',
+    unpackRoutine(btoa('{"hello":"world"}').replace(/=/g, '')) === null);
+
+  /* A hostile count must not be able to spin out a million sets. */
+  const huge = btoa(JSON.stringify({ v: 1, n: 'x', i: [{ n: 'Squat', t: 'lifting', s: [{ v: { r: 5 }, c: 999999 }] }] }))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  check('an absurd set count is capped', unpackRoutine(huge).items[0].sets.length <= 50,
+    String(unpackRoutine(huge).items[0].sets.length));
+
+  /* The claim on the share sheet is that text can be pasted straight back in.
+     If this breaks, that sentence becomes a lie. */
+  const text = routineToText(routine, 'lb');
+  const reparsed = parseWorkoutText(text).routines[0];
+  eq('text round-trips through the paste parser',
+    reparsed.items.map((i) => `${i.name}:${i.type}`),
+    ['Barbell Bench Press:lifting', 'Plank:timed', 'Treadmill:cardio', 'Vinyasa Yoga:practice']);
+  eq('with the weights intact', reparsed.items[0].sets[0], { reps: 8, weight: 185 });
+  eq('the distance intact', reparsed.items[2].sets[0].distance, 2);
+  eq('and the practice duration intact', reparsed.items[3].sets[0].minutes, 45);
+});
+
+/* Regression: setFrom() had no practice branch, so a practice line fell into
+   the lifting case and came back with no duration at all — anyone pasting
+   "Yoga 45 min" out of their notes silently lost the 45. */
+describe('pasting a practice session', () => {
+  const one = parseWorkoutText('Yoga 45 min').routines[0].items[0];
+  eq('a yoga line keeps its minutes', one.sets[0], { minutes: 45 });
+  eq('and is typed as practice', one.type, 'practice');
+
+  eq('an hour reads as sixty minutes',
+    parseWorkoutText('Mat Pilates 1h').routines[0].items[0].sets[0], { minutes: 60 });
+});
+
+/* ------------------------------------------------------------- noticing */
+
+describe('what the app notices', () => {
+  const at = (daysAgo, weight, name) => {
+    const d = new Date(); d.setDate(d.getDate() - daysAgo);
+    return { id: uid(), name: 'W', date: d.toISOString(), durationMs: 0, timeSet: true,
+      entries: [{ id: uid(), name: name || 'Barbell Bench Press', type: 'lifting',
+        sets: [{ id: uid(), weight: String(weight), reps: '8', done: true }] }] };
+  };
+  const texts = (sessions) => observations(sessions, { units: 'lb' }).map((o) => o.text).join(' | ');
+
+  check('three sessions at the same weight is a stall',
+    /sat at 185 lb for three sessions/.test(texts([at(1, 185), at(8, 185), at(15, 185)])));
+
+  /* Two is a normal fortnight, not a plateau. Calling it one would be noise,
+     and noise is what makes people stop believing the next observation. */
+  check('two is not', !/three sessions/.test(texts([at(1, 185), at(8, 185)])));
+  check('nor is a lift that is still going up',
+    !/three sessions/.test(texts([at(1, 195), at(8, 190), at(15, 185)])));
+
+  check('coming back after a month is noticed',
+    /First session back after 4 weeks/.test(texts([at(0, 135), at(30, 185)])));
+  check('but a normal weekly gap is not',
+    !/back after/.test(texts([at(0, 185), at(7, 185)])));
+
+  check('a run of weeks is noticed',
+    /4 weeks in a row/.test(texts([at(1, 185), at(8, 190), at(15, 195), at(22, 200)])));
+
+  eq('an empty log says nothing at all', observations([], { units: 'lb' }).length, 0);
+
+  /* Ids have to be stable enough to dismiss, and specific enough that
+     dismissing one doesn't silence the next. */
+  const notes = observations([at(1, 185), at(8, 185), at(15, 185)], { units: 'lb' });
+  check('each observation carries an id', notes.every((n) => !!n.id));
+  check('ids distinguish different observations',
+    new Set(notes.map((n) => n.id)).size === notes.length);
+});
+
 /* ------------------------------------------------------ what to aim for */
 
 describe('next-set suggestion', () => {

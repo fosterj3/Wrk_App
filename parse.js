@@ -259,6 +259,12 @@ function setFrom(type, p) {
   if (type === 'cardio') {
     if (p.distance != null) s.distance = p.distance;
     if (p.minutes != null) s.minutes = p.minutes;
+  } else if (type === 'practice') {
+    /* Duration and nothing else. Without this branch a practice line fell
+       through to the lifting case, which reads reps and weight — so "Yoga
+       45 min" came back as a yoga session of no length at all. */
+    if (p.minutes != null) s.minutes = p.minutes;
+    else if (p.seconds != null) s.minutes = round2(p.seconds / 60);
   } else if (type === 'timed') {
     /* "Plank 3x45s" gives seconds; "Plank 3x45" leaves 45 sitting in reps. */
     const secs = p.seconds != null ? p.seconds

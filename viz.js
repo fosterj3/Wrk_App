@@ -224,6 +224,102 @@ function timeOfDayBands(sessions) {
   return { bands, unset, counted: sessions.length - unset };
 }
 
+/* ------------------------------------------------------------- noticing */
+
+/**
+ * Things worth saying out loud about a log, without being asked.
+ *
+ * Every other app in this category hands you charts and leaves you to do the
+ * interpreting. Almost none of them say the thing. This is that — but it has
+ * to stay **rare and certain**: one observation at a time, only when it is
+ * plainly true from the data. Chatty guesswork would be worse than silence,
+ * because the moment one of these is wrong nobody believes the next.
+ *
+ * Ordered by usefulness, not by how nice they are to read. Returned with a
+ * stable id so one can be dismissed without silencing the rest.
+ */
+function observations(sessions, opts) {
+  const units = (opts && opts.units) || 'lb';
+  const now = (opts && opts.now) || new Date();
+  const out = [];
+  if (!sessions.length) return out;
+
+  const byDate = [...sessions].sort((a, b) => +new Date(b.date) - +new Date(a.date));
+  const daysBetween = (a, b) => Math.round((startOfDay(a) - startOfDay(b)) / 86400000);
+
+  /* Coming back after a break. First, because it is the only one that changes
+     what you should do in the next hour. */
+  if (byDate.length >= 2) {
+    const gap = daysBetween(new Date(byDate[0].date), new Date(byDate[1].date));
+    const sinceLatest = daysBetween(now, new Date(byDate[0].date));
+    if (gap >= 14 && sinceLatest <= 1) {
+      out.push({
+        id: `back:${dayKey(byDate[0].date)}`,
+        text: `First session back after ${Math.round(gap / 7)} weeks. Start lighter than feels right — you'll catch up faster than you think.`,
+      });
+    }
+  }
+
+  /* A lift that has stopped moving. Actionable, and the thing people most
+     often fail to notice about their own training. */
+  const stalled = stalledLift(byDate, units);
+  if (stalled) out.push(stalled);
+
+  /* Consecutive weeks with at least one session. */
+  const weeks = weekStreak(byDate, now);
+  if (weeks >= 3) {
+    out.push({ id: `streak:${weeks}`, text: `${weeks} weeks in a row with at least one session. That consistency is the whole game.` });
+  }
+
+  return out;
+}
+
+/**
+ * An exercise whose best set hasn't improved across its last three sessions.
+ *
+ * Three is the threshold deliberately: two identical sessions is a normal
+ * week, and calling that a plateau would be noise.
+ */
+function stalledLift(byDate, units) {
+  const names = new Map();
+  byDate.forEach((s) => s.entries.forEach((e) => {
+    if (e.type !== 'lifting') return;
+    if (!names.has(e.name)) names.set(e.name, []);
+    const best = Math.max(0, ...e.sets
+      .filter((set) => set.weight !== '' && !isNaN(Number(set.weight)))
+      .map((set) => Number(set.weight)));
+    if (best > 0) names.get(e.name).push({ best, date: s.date });
+  }));
+
+  for (const [name, runs] of names) {
+    if (runs.length < 3) continue;
+    const last3 = runs.slice(0, 3);
+    /* Newest first, so "no improvement" means none of them beat the oldest. */
+    const top = Math.max(...last3.map((r) => r.best));
+    if (last3.every((r) => r.best === last3[0].best) && top === last3[0].best) {
+      return {
+        id: `stall:${name}:${last3[0].best}`,
+        text: `${name} has sat at ${last3[0].best} ${units} for three sessions. Dropping about 10% and building back usually beats grinding at it.`,
+      };
+    }
+  }
+  return null;
+}
+
+function weekStreak(byDate, now) {
+  const trained = new Set(byDate.map((s) => +startOfWeek(new Date(s.date))));
+  let weeks = 0;
+  const cursor = startOfWeek(now);
+  /* This week only counts once something is in it — otherwise every Monday
+     would break a streak that is still perfectly alive. */
+  if (!trained.has(+cursor)) cursor.setDate(cursor.getDate() - 7);
+  while (trained.has(+cursor)) {
+    weeks += 1;
+    cursor.setDate(cursor.getDate() - 7);
+  }
+  return weeks;
+}
+
 /* ------------------------------------------------------ what to aim for */
 
 /* Big lower-body lifts move in bigger steps — the smallest plate jump that

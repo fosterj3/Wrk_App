@@ -106,6 +106,158 @@ function convertWeight(value, from, to) {
   return Math.round(converted * 10) / 10;
 }
 
+/* --------------------------------------------------- sharing a routine */
+
+/**
+ * A routine squeezed into a URL fragment.
+ *
+ * The whole point is that a shared routine needs no account, no server and no
+ * upload: everything after the `#` stays in the browser and is never sent
+ * anywhere, so passing someone a link cannot leak it to the host — or to me.
+ * The recipient is training in seconds instead of signing up.
+ *
+ * Packed hard because URLs get pasted into places that mangle long ones: keys
+ * are single letters, empty values are dropped, and identical consecutive sets
+ * collapse to a count. "3 × 8 @ 185" is one entry, not three.
+ */
+const SHARE_VERSION = 1;
+
+function packSets(sets) {
+  const out = [];
+  (sets || []).forEach((s) => {
+    /* Only the fields that carry a value, so blank targets cost nothing. */
+    const one = {};
+    if (s.reps != null && s.reps !== '') one.r = Number(s.reps);
+    if (s.weight != null && s.weight !== '') one.w = Number(s.weight);
+    if (s.minutes != null && s.minutes !== '') one.m = Number(s.minutes);
+    if (s.seconds != null && s.seconds !== '') one.s = Number(s.seconds);
+    if (s.distance != null && s.distance !== '') one.d = Number(s.distance);
+
+    const last = out[out.length - 1];
+    const same = last && JSON.stringify(last.v) === JSON.stringify(one);
+    if (same) last.c += 1;
+    else out.push({ v: one, c: 1 });
+  });
+  return out;
+}
+
+function unpackSets(packed) {
+  const out = [];
+  (packed || []).forEach((group) => {
+    const v = group.v || {};
+    const set = {};
+    if (v.r != null) set.reps = v.r;
+    if (v.w != null) set.weight = v.w;
+    if (v.m != null) set.minutes = v.m;
+    if (v.s != null) set.seconds = v.s;
+    if (v.d != null) set.distance = v.d;
+    /* Capped: a corrupt or hostile count must not spin out a million sets. */
+    const times = Math.min(50, Math.max(1, Number(group.c) || 1));
+    for (let i = 0; i < times; i++) out.push({ ...set });
+  });
+  return out;
+}
+
+/* btoa only handles Latin-1, and exercise names are free text. */
+function bytesToBase64Url(bytes) {
+  let bin = '';
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function base64UrlToBytes(str) {
+  const pad = str.replace(/-/g, '+').replace(/_/g, '/');
+  const bin = atob(pad + '==='.slice((pad.length + 3) % 4));
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+function packRoutine(routine) {
+  const payload = {
+    v: SHARE_VERSION,
+    n: String(routine.name || 'Routine').slice(0, 80),
+    i: (routine.items || []).slice(0, 40).map((it) => ({
+      n: String(it.name || '').slice(0, 80),
+      t: EXERCISE_TYPES.includes(it.type) ? it.type : 'lifting',
+      s: packSets(it.sets),
+    })),
+  };
+  return bytesToBase64Url(new TextEncoder().encode(JSON.stringify(payload)));
+}
+
+/**
+ * @returns {{name:string, items:Array}|null} null for anything unreadable —
+ *   a truncated link, a mangled paste, or something that simply isn't ours.
+ */
+function unpackRoutine(str) {
+  try {
+    const json = new TextDecoder().decode(base64UrlToBytes(String(str || '')));
+    const data = JSON.parse(json);
+    if (!data || data.v !== SHARE_VERSION || !Array.isArray(data.i)) return null;
+
+    const items = data.i
+      .filter((it) => it && typeof it === 'object' && it.n)
+      .map((it) => ({
+        name: String(it.n).slice(0, 80),
+        type: EXERCISE_TYPES.includes(it.t) ? it.t : 'lifting',
+        sets: unpackSets(it.s),
+      }));
+    if (!items.length) return null;
+
+    return { name: String(data.n || 'Shared routine').slice(0, 80), items };
+  } catch (err) {
+    return null;
+  }
+}
+
+/**
+ * A routine as the plain text it probably started life as.
+ *
+ * The log arrives as pasted text; this is how it leaves. Round-trips through
+ * the paste parser, so what someone shares can be pasted straight back in.
+ */
+function routineToText(routine, units) {
+  const lines = [String(routine.name || 'Routine')];
+  (routine.items || []).forEach((it) => {
+    const sets = it.sets || [];
+    const first = sets[0] || {};
+    const uniform = sets.every((s) => JSON.stringify(s) === JSON.stringify(first));
+
+    if (it.type === 'cardio' || it.type === 'practice') {
+      const bits = [];
+      if (first.distance != null && first.distance !== '') {
+        /* A bare number is not a distance to the parser, so the unit has to be
+           written out or the text will not read back. Falls back to the one
+           implied by the weight units. */
+        const unit = it.distanceUnit || (units === 'kg' ? 'km' : 'mi');
+        bits.push(`${first.distance} ${unit}`);
+      }
+      if (first.minutes != null && first.minutes !== '') bits.push(`${Math.round(Number(first.minutes))} min`);
+      lines.push(`${it.name}${bits.length ? ` ${bits.join(' ')}` : ''}`);
+      return;
+    }
+    if (it.type === 'timed') {
+      lines.push(`${it.name}${first.seconds ? ` ${sets.length}x${first.seconds}s` : ''}`);
+      return;
+    }
+    if (!sets.length || (first.reps == null || first.reps === '')) {
+      lines.push(it.name);
+      return;
+    }
+    if (uniform) {
+      const at = (first.weight != null && first.weight !== '') ? ` @ ${first.weight}${units || ''}` : '';
+      lines.push(`${it.name} ${sets.length}x${first.reps}${at}`);
+      return;
+    }
+    lines.push(`${it.name} ${sets.map((s) => s.reps).join('/')}`);
+  });
+  return lines.join('\n');
+}
+
 /* ------------------------------------------------------------- platform */
 
 function isIos() {

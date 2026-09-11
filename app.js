@@ -16,6 +16,7 @@ const DEFAULTS = {
     units: 'lb', restSeconds: 90, calendarView: 'month', theme: null,
     weeklyGoal: 3, barWeight: 45, lastExport: null, backupSnooze: null,
     alertSound: 'beep', alertVolume: 0.9, keepAwake: true, iosWarnSnooze: null,
+    dismissedNotes: {},
     /* null = never offered. Set once the walkthrough is finished or skipped,
        so it introduces itself exactly once and afterwards only on request. */
     tourDone: null,
@@ -638,6 +639,20 @@ function showRecovery(err) {
  * the state it would read from is exactly what may be broken. Whatever is on
  * disk is the thing worth rescuing.
  */
+/* Clipboard, with the prompt() fallback that older iOS and any non-secure
+   context still need — a Copy button that silently does nothing is worse than
+   one that shows you the text to copy by hand. */
+function copyOut(text, done) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(
+      () => toast(done),
+      () => window.prompt('Copy this:', text)
+    );
+    return;
+  }
+  window.prompt('Copy this:', text);
+}
+
 function rescueExport() {
   let raw;
   try { raw = localStorage.getItem(STORE_KEY); } catch (e) { raw = null; }
@@ -777,6 +792,32 @@ function iosStorageBanner() {
       <div class="row">
         <button class="ghost" data-action="snooze-ios">Later</button>
       </div>
+    </div>`;
+}
+
+/**
+ * One thing the app noticed, or nothing at all.
+ *
+ * Exactly one at a time: a column of observations is a feed, and a feed is
+ * something people learn to scroll past. Dismissing hides that specific one
+ * for a fortnight rather than the feature, so a stall you already know about
+ * stops nagging while a new one still gets through.
+ */
+function noticeCard() {
+  const seen = state.settings.dismissedNotes || {};
+  const note = observations(state.sessions, { units: state.settings.units })
+    .find((n) => {
+      const at = seen[n.id] ? +new Date(seen[n.id]) : 0;
+      return !at || Date.now() - at > 14 * 86400000;
+    });
+  if (!note) return '';
+
+  return `
+    <div class="notice">
+      <span class="notice-mark" aria-hidden="true">&#9679;</span>
+      <p class="grow">${esc(note.text)}</p>
+      <button class="icon-btn" data-action="dismiss-notice" data-id="${esc(note.id)}"
+              aria-label="Dismiss">&times;</button>
     </div>`;
 }
 
@@ -1109,6 +1150,7 @@ function renderWorkout() {
       ${iosStorageBanner()}
       ${backupBanner()}
       ${goalCard()}
+      ${noticeCard()}
       <div class="empty">
         <h3>No workout in progress</h3>
         <p>Start from scratch, or load one of your routines.</p>
@@ -1476,10 +1518,95 @@ function renderRoutines() {
       <div class="row">
         <button class="btn secondary" data-action="start-routine" data-id="${r.id}">Start</button>
         <button class="ghost" data-action="edit-routine" data-id="${r.id}">Edit</button>
+        <button class="ghost" data-action="share-routine" data-id="${r.id}">Share</button>
         <div class="spacer"></div>
         <button class="icon-btn" data-action="delete-routine" data-id="${r.id}" aria-label="Delete routine">&#128465;</button>
       </div>
     </div>`).join('')}`;
+}
+
+/**
+ * Hand a routine to someone else.
+ *
+ * Two ways out, because they suit different people: a link for anyone who has
+ * the app or might get it, and plain text for a group chat or a coach who
+ * doesn't. The text round-trips through the paste parser, so what you send can
+ * be pasted straight back in — the log arrives as text and leaves as text.
+ */
+function shareRoutineSheet(id) {
+  const r = state.routines.find((x) => x.id === id);
+  if (!r) return;
+
+  const link = `${location.origin}${location.pathname}#r=${packRoutine(r)}`;
+  const text = routineToText(r, state.settings.units);
+
+  openSheet(`Share ${r.name}`, `
+    <p class="small muted" style="margin-top:0">The routine travels inside the link itself —
+      nothing is uploaded, and no account is needed at either end.</p>
+
+    <button class="btn block" data-action="copy-routine-link" data-id="${r.id}">Copy link</button>
+    <p class="small muted" style="margin:6px 0 14px">Whoever opens it gets asked whether to add
+      this routine. ${link.length > 1800
+        ? '<strong>This one is long</strong> — some apps shorten links; send the text instead if it arrives broken.'
+        : ''}</p>
+
+    ${navigator.share ? `
+      <button class="btn block secondary" data-action="share-routine-link" data-id="${r.id}">Share&hellip;</button>
+      <p class="small muted" style="margin:6px 0 14px">Straight into Messages, WhatsApp, wherever.</p>` : ''}
+
+    <button class="btn block secondary" data-action="copy-routine-text" data-id="${r.id}">Copy as text</button>
+    <p class="small muted" style="margin:6px 0 10px">For anyone without the app. It's the same
+      format Cadence reads, so it can be pasted straight back in.</p>
+    <pre class="share-preview">${esc(text)}</pre>`);
+}
+
+/**
+ * A routine arriving from someone else's link.
+ *
+ * Never imported silently: an unknown link should not be able to write to
+ * somebody's routines without them seeing what it is first.
+ */
+function offerSharedRoutine(packed) {
+  const incoming = unpackRoutine(packed);
+  clearShareHash();
+
+  if (!incoming) {
+    openSheet('That link didn\'t work', `
+      <p class="small muted" style="margin-top:0">The routine in it couldn't be read — links get
+        cut short when they're pasted through some apps. Ask whoever sent it to use
+        <strong>Copy as text</strong> instead, then paste that into
+        <strong>Routines &rarr; Paste from notes</strong>.</p>`);
+    return;
+  }
+
+  openSheet('Someone shared a routine', `
+    <div class="card" style="margin-top:0">
+      <div class="card-title">${esc(incoming.name)}</div>
+      <div class="card-sub">${plural(incoming.items.length, 'exercise')}</div>
+      ${incoming.items.map((it) => `
+        <div class="hist-row">
+          <span>${esc(it.name)}</span>
+          <b class="muted small">${esc(summarizeItem(it) || '')}</b>
+        </div>`).join('')}
+    </div>
+    <button class="btn block" data-action="accept-shared" style="margin-top:14px">Add to my routines</button>
+    <p class="small muted" style="margin:6px 0 0">Nothing else about your log is touched.</p>`);
+
+  pendingShared = incoming;
+}
+
+let pendingShared = null;
+
+/* Drop the fragment so a refresh doesn't re-offer the same routine, without
+   adding a history entry the back button would land on. */
+function clearShareHash() {
+  history.replaceState(null, '', location.pathname + location.search);
+}
+
+/* A link opened from a chat app arrives as a fragment on first load. */
+function checkSharedLink() {
+  const match = /[#&]r=([A-Za-z0-9\-_]+)/.exec(location.hash || '');
+  if (match) offerSharedRoutine(match[1]);
 }
 
 function editRoutine(id) {
@@ -3451,6 +3578,50 @@ document.addEventListener('click', (ev) => {
       break;
     }
 
+    case 'share-routine':
+      shareRoutineSheet(id);
+      break;
+
+    case 'copy-routine-link': {
+      const r = state.routines.find((x) => x.id === id);
+      if (!r) return;
+      copyOut(`${location.origin}${location.pathname}#r=${packRoutine(r)}`, 'Link copied');
+      break;
+    }
+
+    case 'copy-routine-text': {
+      const r = state.routines.find((x) => x.id === id);
+      if (!r) return;
+      copyOut(routineToText(r, state.settings.units), 'Copied as text');
+      break;
+    }
+
+    case 'share-routine-link': {
+      const r = state.routines.find((x) => x.id === id);
+      if (!r || !navigator.share) return;
+      navigator.share({
+        title: r.name,
+        text: `${r.name} — a routine from Cadence`,
+        url: `${location.origin}${location.pathname}#r=${packRoutine(r)}`,
+      }).catch(() => { /* dismissed */ });
+      break;
+    }
+
+    case 'accept-shared': {
+      if (!pendingShared) return;
+      state.routines.push({
+        id: uid(),
+        name: pendingShared.name,
+        items: pendingShared.items,
+      });
+      pendingShared = null;
+      save();
+      closeSheet();
+      go('routines');
+      toast('Routine added');
+      break;
+    }
+
     case 'exercise-history':
       openExerciseHistory(btn.dataset.name);
       break;
@@ -3546,6 +3717,15 @@ document.addEventListener('click', (ev) => {
 
     /* Two weeks, not forever: the risk doesn't go away by being dismissed, and
        the only thing that actually clears it is installing. */
+    case 'dismiss-notice':
+      state.settings.dismissedNotes = {
+        ...(state.settings.dismissedNotes || {}),
+        [btn.dataset.id]: new Date().toISOString(),
+      };
+      save();
+      render();
+      break;
+
     case 'snooze-ios':
       state.settings.iosWarnSnooze = new Date().toISOString();
       save();
@@ -4051,3 +4231,6 @@ go('workout');
 /* go() renders synchronously, so the elements the walkthrough points at already
    exist by here. */
 maybeOfferTour();
+
+/* A routine arriving from someone else's link, before anything else can open. */
+checkSharedLink();

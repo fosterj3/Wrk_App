@@ -318,6 +318,11 @@ body.sheet-open .timer-bar{visibility:hidden}
   padding:12px;margin-bottom:8px;
 }
 .pick:active{border-color:var(--accent)}
+/* Ticked on a multi-select step. Border and tick rather than a filled
+   background, so several selected rows don't turn the sheet into a block of
+   colour. */
+.pick.on{border-color:var(--accent-fg);box-shadow:inset 0 0 0 1px var(--accent-fg)}
+.pick.on > span{color:var(--accent-fg);font-weight:700}
 .grow{flex:1;min-width:0}
 .pick .nm{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 

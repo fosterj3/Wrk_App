@@ -13,7 +13,7 @@ installed copy, so only the product name changed.
 ## What it does
 
 - **Log workouts** — weight × reps for lifting, distance and time for cardio, a held time for planks, or just a duration for yoga and pilates. Tick sets off as you go.
-- **Build me a plan** — five questions (goal, days, style, equipment, experience) and Cadence writes you a real starting program, with notes on how to run it. Lifting, cardio, both, or a yoga/pilates week.
+- **Build me a plan** — five questions (goal, days, kinds of training, equipment, experience) and Cadence writes you a real starting program, with notes on how to run it. Two to seven days, and tick as many kinds as you like — the week gets split between lifting, cardio and yoga/pilates.
 - **Paste from your notes** — paste a workout or a whole program straight out of Notes and it becomes routines, with sets, reps and weights filled in. It shows you what it understood before saving anything.
 - **Routines** — save a workout as a template ("Push Day A") and load it instead of retyping it every session.
 - **Last time you did this** — every exercise shows what you did last session, with a Repeat button to copy those numbers in.
@@ -314,36 +314,58 @@ tell: the old placeholder was *exactly* `12:00:00.000`, which a real workout ess
 hits. A few genuine noon sessions get misread as unset. That is the right way round — the cost is
 one missing bar rather than a fabricated spike.
 
-## Plan styles
+## Plan modalities
 
-The builder used to assume a barbell. It now asks what the week is actually made of, separately
-from the goal — "lose weight" says nothing about whether someone wants to be under a bar or on a
-mat:
+The builder used to assume a barbell, then briefly offered four mutually exclusive styles. Both were
+too narrow: "lifting and cardio" was a style of its own, and there was no way at all to ask for
+cardio *and* yoga. You now tick as many as you like, and the week is split between them.
 
-| Style | The week |
+| | The days it contributes |
 | --- | --- |
-| `lift` | The lifting split, and nothing appended |
-| `mixed` | The lifting split with cardio at the end of each session |
-| `cardio` | Easy / interval / long sessions, alternating hard and easy |
-| `mindbody` | Flow, mat work, mobility and a gentle day |
+| `strength` | The lifting split — full body or a split, by day count and experience |
+| `cardio` | Easy / interval / long, with the hard days spaced apart |
+| `practice` | Flow, mat work, mobility, and a gentle day to finish |
 
-Each style stays pure to what was asked. Advice about what to add — strength work for runners,
-resistance work alongside a mat practice — goes in the notes rather than being silently inserted
-into the plan.
+Days divide as evenly as they go, with strength taking any remainder first — a third lifting day is
+worth more than a third yoga session.
 
-Two details worth keeping:
+### Separate days, not stacked sessions
 
-- **Omitting the style is still valid.** Older callers and the test sweep pass no style, and fall
-  back to what the builder did before: lifting, with cardio bolted on for the goals whose scheme
-  asked for it. There is a test pinning that.
-- **The equipment question is skipped** for a mat practice, because nothing in the answer changes
-  the plan. `PLAN_STEPS` entries can carry a `when` predicate; the step counter and the Back button
-  both walk the filtered list, so going back past a skipped question can't strand you.
+Ticking two things gives you days of each, not one session containing both. That is what people mean
+by "some yoga, some lifting", and it is the only shape that still works at six or seven days.
 
-The sweep now covers **720 combinations** — goal × days × equipment × level × style — asserting
-every exercise exists in the library, is typed the way the library types it, has sets, has minutes
-where the type needs them, and that no routine name repeats within a week.
+Sessions are then **dealt out rather than concatenated**: always take from the block with the most
+left, but never the same kind twice running while something else is available. Three lifting days
+and two runs come out `lift, run, lift, run, lift`, not two lifts followed by two runs. Spacing the
+hard work is most of the value of a mixed week.
 
+### Seven days of lifting is not a plan
+
+`MAX_STRENGTH_DAYS` is 5. Asking for seven does not make the sixth and seventh useful — it makes
+them the reason the first five stop working. Days past the cap go to whatever else was ticked, and
+if lifting was the only thing on the list they become **easy days**, with a note saying why.
+
+The same care applies at the other end. Somebody new asking for six or seven cardio sessions is not
+asking to run every day, and running daily from a standing start is the reliable way to be injured
+by week three. Those weeks are **walked rather than run**, the walks get longer (same effort, more
+clock), and the interval day is dropped entirely — a person who wants half an hour on their feet
+each day does not want a jump-rope session on Wednesday. A seven-day beginner cardio week comes out
+as six 35-minute walks and one 45-minute one, which is the range that was asked for.
+
+### Compatibility
+
+- **Omitting the answer still builds.** No modalities and no style falls back to what the builder
+  did before any of this existed: lifting, with cardio for the goals whose scheme asked for it.
+- **The four old style strings still map** onto the new model via `LEGACY_STYLES`, so anything
+  written against `style: 'mindbody'` keeps working.
+- **The equipment question is skipped** only for a *mat-only* week — tick lifting alongside yoga and
+  it matters again. `PLAN_STEPS` entries carry a `when` predicate; the step counter and the Back
+  button both walk the filtered list, so going back past a skipped question can't strand you.
+
+The sweep covers **1,890 combinations** — goal × days (2–7) × equipment × level × every non-empty
+subset of the modalities — asserting each week fills the days asked for, never exceeds five lifting
+days, and that every exercise exists in the library, is typed the way the library types it, has
+sets, and has minutes where the type needs them.
 ## The brand
 
 Logo, wordmark, tagline and palette come from a supplied brand sheet. The typeface it specifies —

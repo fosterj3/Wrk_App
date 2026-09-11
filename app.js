@@ -1337,6 +1337,10 @@ function editRoutine(id) {
 /* --------------------------------------------------------- build me a plan */
 
 let planAnswers = null;
+/* Ticks on a multi-select step, held apart from planAnswers so the step still
+   counts as unanswered until Continue is pressed — otherwise the first tap
+   would satisfy the wizard and skip straight past. */
+let planDraft = {};
 
 const PLAN_STEPS = [
   {
@@ -1354,20 +1358,26 @@ const PLAN_STEPS = [
       { value: 3, label: '3 days', blurb: 'The sweet spot for most people' },
       { value: 4, label: '4 days', blurb: 'More volume, needs more time' },
       { value: 5, label: '5 days', blurb: 'Only if you can hold it' },
+      { value: 6, label: '6 days', blurb: 'Needs the easy days to be easy' },
+      { value: 7, label: '7 days', blurb: 'Something every day, not everything every day' },
     ],
   },
   {
-    key: 'style',
+    key: 'modalities',
     title: 'What kind of training?',
-    lead: 'The goal says where you want to get to. This says how you want to get there.',
-    options: () => Object.entries(PLAN_STYLES).map(([value, o]) => ({ value, ...o })),
+    lead: 'Pick as many as you like — the week gets split between them.',
+    multi: true,
+    options: () => Object.entries(PLAN_MODALITIES).map(([value, o]) => ({ value, ...o })),
   },
   {
     key: 'equipment',
     title: 'What can you train with?',
     lead: '',
     /* Nothing in a mat practice depends on the answer, so it isn't asked. */
-    when: (a) => a.style !== 'mindbody',
+    /* Nothing in a mat-only week depends on the answer, so it isn't asked —
+       but tick lifting alongside yoga and it matters again. */
+    when: (a) => !(Array.isArray(a.modalities)
+      && a.modalities.length === 1 && a.modalities[0] === 'practice'),
     options: () => Object.entries(PLAN_EQUIPMENT).map(([value, o]) => ({ value, ...o })),
   },
   {
@@ -1385,6 +1395,7 @@ function planSteps(answers) {
 
 function startPlanWizard() {
   planAnswers = {};
+  planDraft = {};
   renderPlanStep();
 }
 
@@ -1394,18 +1405,33 @@ function renderPlanStep() {
   if (!step) { renderPlanPreview(); return; }
   const n = steps.indexOf(step) + 1;
 
+  /* A multi-select step stays put while you tick things, so it needs its own
+     Continue rather than advancing on the first tap. */
+  const chosen = step.multi ? (planDraft[step.key] || []) : null;
+
   openSheet('Build me a plan', `
     <p class="small muted" style="margin-top:0">Step ${n} of ${steps.length}</p>
     <h3 style="margin:0 0 6px">${esc(step.title)}</h3>
     ${step.lead ? `<p class="small muted" style="margin:0 0 14px">${esc(step.lead)}</p>` : ''}
-    ${step.options().map((o) => `
-      <button class="pick" data-action="plan-answer" data-key="${step.key}" data-val="${esc(o.value)}">
+    ${step.options().map((o) => {
+      const on = step.multi && chosen.includes(String(o.value));
+      return `
+      <button class="pick ${on ? 'on' : ''}"
+              data-action="${step.multi ? 'plan-toggle' : 'plan-answer'}"
+              data-key="${step.key}" data-val="${esc(o.value)}"
+              ${step.multi ? `aria-pressed="${on}"` : ''}>
         <div class="grow">
           <div class="nm">${esc(o.label)}</div>
           ${o.blurb ? `<div class="card-sub">${esc(o.blurb)}</div>` : ''}
         </div>
-        <span class="muted">&rsaquo;</span>
-      </button>`).join('')}
+        <span class="muted">${step.multi ? (on ? '&#10003;' : '') : '&rsaquo;'}</span>
+      </button>`;
+    }).join('')}
+    ${step.multi ? `
+      <button class="btn block" data-action="plan-multi-done" data-key="${step.key}"
+              style="margin-top:12px" ${chosen.length ? '' : 'disabled'}>
+        ${chosen.length ? `Continue with ${plural(chosen.length, 'kind')}` : 'Pick at least one'}
+      </button>` : ''}
     ${n > 1 ? '<button class="linkish" data-action="plan-back" style="margin-top:8px">&lsaquo; Back</button>' : ''}`);
 }
 
@@ -2953,6 +2979,24 @@ document.addEventListener('click', (ev) => {
     case 'plan-answer': {
       const { key, val } = btn.dataset;
       planAnswers[key] = key === 'days' ? Number(val) : val;
+      renderPlanStep();
+      break;
+    }
+
+    case 'plan-toggle': {
+      const { key, val } = btn.dataset;
+      const picked = planDraft[key] || [];
+      planDraft[key] = picked.includes(val)
+        ? picked.filter((v) => v !== val)
+        : [...picked, val];
+      renderPlanStep();
+      break;
+    }
+
+    case 'plan-multi-done': {
+      const { key } = btn.dataset;
+      if (!(planDraft[key] || []).length) return;
+      planAnswers[key] = planDraft[key];
       renderPlanStep();
       break;
     }

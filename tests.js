@@ -302,29 +302,44 @@ describe('plan builder', () => {
   const problems = [];
   let combos = 0;
 
-  const styles = Object.keys(PLAN_STYLES);
+  /* Every non-empty combination of what can be ticked. */
+  const modalityKeys = Object.keys(PLAN_MODALITIES);
+  const modalitySets = [];
+  for (let mask = 1; mask < (1 << modalityKeys.length); mask++) {
+    modalitySets.push(modalityKeys.filter((_, i) => mask & (1 << i)));
+  }
 
-  goals.forEach((goal) => [2, 3, 4, 5].forEach((days) => kits.forEach((equipment) => levels.forEach((level) => {
-    styles.forEach((style) => {
+  goals.forEach((goal) => [2, 3, 4, 5, 6, 7].forEach((days) => kits.forEach((equipment) => levels.forEach((level) => {
+    modalitySets.forEach((modalities) => {
     combos++;
-    const plan = buildPlan({ goal, days, equipment, level, style });
-    const tag = `${goal}/${days}/${equipment}/${level}/${style}`;
+    const plan = buildPlan({ goal, days, equipment, level, modalities });
+    const tag = `${goal}/${days}/${equipment}/${level}/${modalities.join('+')}`;
 
     if (!plan.routines.length) problems.push(`${tag}: no routines`);
     if (!plan.notes.length) problems.push(`${tag}: no notes`);
     if (plan.weeklyGoal !== days) problems.push(`${tag}: weeklyGoal ${plan.weeklyGoal}`);
 
-    if (plan.routines.length !== Math.min(5, Math.max(2, days)) && (style === 'cardio' || style === 'mindbody')) {
+    /* A week fills the days asked for. It may hold fewer *distinct* sessions —
+       three full-body days rotated across five is deliberate without equipment
+       — but it must never invent more sessions than days. */
+    if (plan.routines.length > days) {
       problems.push(`${tag}: ${plan.routines.length} sessions for ${days} days`);
     }
+    if (equipment !== 'bodyweight' && plan.routines.length !== days) {
+      problems.push(`${tag}: ${plan.routines.length} sessions for ${days} days`);
+    }
+
+    /* Never more than five real lifting days, however the week is sliced. */
+    const liftingDays = plan.routines.filter((r) => r.items.some((i) => i.type === 'lifting')).length;
+    if (liftingDays > 5) problems.push(`${tag}: ${liftingDays} lifting days`);
 
     plan.routines.forEach((r) => {
       /* Regression: bodyweight splits collapsed to one exercise a day. A
          cardio or practice session is legitimately one thing, so the floor
          only applies where the day is built out of movement patterns. */
-      const liftingDay = style === 'lift' || style === 'mixed';
+      const liftingDay = r.items.some((i) => i.type === 'lifting');
       if (liftingDay && r.items.length < 3) problems.push(`${tag} ${r.name}: ${r.items.length} exercises`);
-      if (!liftingDay && !r.items.length) problems.push(`${tag} ${r.name}: empty`);
+      if (!r.items.length) problems.push(`${tag} ${r.name}: empty`);
 
       r.items.forEach((it) => {
         if (!libNames.has(it.name)) problems.push(`${tag}: "${it.name}" not in library`);
@@ -348,22 +363,63 @@ describe('plan builder', () => {
     });
   }))));
 
-  check(`all ${combos} goal x days x kit x level x style combinations are valid`, problems.length === 0,
+  check(`all ${combos} goal x days x kit x level x modality combinations are valid`, problems.length === 0,
     [...new Set(problems)].slice(0, 5).join(' | '));
 
-  /* The style has to actually change the week, or the question is decoration. */
-  const styleOf = (style) => buildPlan({ goal: 'weightloss', days: 3, equipment: 'gym', level: 'some', style })
-    .routines.flatMap((r) => r.items.map((i) => i.type));
-  check('a lifting week has no cardio bolted on', !styleOf('lift').includes('cardio'), styleOf('lift').join(','));
-  check('a mixed week has both', styleOf('mixed').includes('lifting') && styleOf('mixed').includes('cardio'));
-  check('a cardio week is cardio', styleOf('cardio').every((t) => t === 'cardio'), styleOf('cardio').join(','));
-  check('a yoga week is practice', styleOf('mindbody').every((t) => t === 'practice'), styleOf('mindbody').join(','));
+  const typesOf = (modalities, days = 3) =>
+    buildPlan({ goal: 'weightloss', days, equipment: 'gym', level: 'some', modalities })
+      .routines.flatMap((r) => r.items.map((i) => i.type));
 
-  /* Older callers pass no style at all — they must keep the previous shape. */
+  check('lifting alone has no cardio bolted on',
+    !typesOf(['strength']).includes('cardio'), typesOf(['strength']).join(','));
+  check('cardio alone is cardio',
+    typesOf(['cardio']).every((t) => t === 'cardio'));
+  check('yoga alone is practice',
+    typesOf(['practice']).every((t) => t === 'practice'));
+
+  /* The thing the old single-choice list could not express at all. */
+  const yogaAndRun = typesOf(['cardio', 'practice'], 4);
+  check('cardio and yoga together gives both',
+    yogaAndRun.includes('cardio') && yogaAndRun.includes('practice'), yogaAndRun.join(','));
+
+  const allThree = buildPlan({ goal: 'general', days: 7, equipment: 'gym', level: 'some',
+    modalities: ['strength', 'cardio', 'practice'] });
+  const kindsIn = new Set(allThree.routines.flatMap((r) => r.items.map((i) => i.type)));
+  check('a seven-day week can hold all three', kindsIn.has('lifting') && kindsIn.has('cardio') && kindsIn.has('practice'),
+    [...kindsIn].join(','));
+  eq('and it is seven sessions', allThree.routines.length, 7);
+
+  /* Someone older asking to walk daily: seven cardio days, new to it. Should be
+     walks of a useful length, not seven runs. */
+  const dailyWalk = buildPlan({ goal: 'general', days: 7, equipment: 'bodyweight', level: 'new',
+    modalities: ['cardio'] });
+  const walkNames = new Set(dailyWalk.routines.flatMap((r) => r.items.map((i) => i.name)));
+  check('a daily beginner cardio week walks rather than runs',
+    walkNames.has('Walk') && !walkNames.has('Run'), [...walkNames].join(','));
+  const walkMinutes = dailyWalk.routines.flatMap((r) => r.items.map((i) => Number(i.sets[0].minutes)));
+  check('and the walks are 30 to 60 minutes',
+    walkMinutes.every((m) => m >= 30 && m <= 60), walkMinutes.join(','));
+
+  /* Seven days of lifting is not a plan, it is an injury. The surplus has to
+     turn into something the body can absorb. */
+  const sevenLift = buildPlan({ goal: 'strength', days: 7, equipment: 'gym', level: 'experienced',
+    modalities: ['strength'] });
+  eq('seven lifting days still yields seven sessions', sevenLift.routines.length, 7);
+  const hardDays = sevenLift.routines.filter((r) => r.items.some((i) => i.type === 'lifting')).length;
+  eq('but only five of them are lifting', hardDays, 5);
+  check('and the plan says why', sevenLift.notes.some((n) => /five/i.test(n)),
+    sevenLift.notes.join(' | ').slice(0, 120));
+
+  /* Older callers pass no modalities at all — they must still build. */
   const legacy = buildPlan({ goal: 'weightloss', days: 3, equipment: 'gym', level: 'some' });
-  check('no style still builds the old lifting-plus-cardio week',
-    legacy.routines.every((r) => r.items.some((i) => i.type === 'lifting'))
-    && legacy.routines.some((r) => r.items.some((i) => i.type === 'cardio')));
+  const legacyTypes = new Set(legacy.routines.flatMap((r) => r.items.map((i) => i.type)));
+  check('no answer still builds a lifting-and-cardio week',
+    legacyTypes.has('lifting') && legacyTypes.has('cardio'), [...legacyTypes].join(','));
+
+  /* And the four old style strings still map onto the new model. */
+  const viaStyle = buildPlan({ goal: 'general', days: 3, equipment: 'gym', level: 'some', style: 'mindbody' });
+  check('an old style string still works',
+    viaStyle.routines.flatMap((r) => r.items.map((i) => i.type)).every((t) => t === 'practice'));
 
   /* Regression: prescribing pull-ups to someone who can't do one. */
   const newBw = buildPlan({ goal: 'general', days: 3, equipment: 'bodyweight', level: 'new' });
@@ -382,9 +438,11 @@ describe('plan builder', () => {
     buildPlan({ goal: 'muscle', days: 3, equipment: 'gym', level: 'new' }).routines[0].items[0].sets.length
     < buildPlan({ goal: 'muscle', days: 3, equipment: 'gym', level: 'experienced' }).routines[0].items[0].sets.length);
 
+  /* Cardio used to be appended to every lifting day; it now gets days of its
+     own, so the week contains it rather than every session carrying it. */
   check('fat-loss plans include cardio',
     buildPlan({ goal: 'weightloss', days: 3, equipment: 'gym', level: 'some' })
-      .routines.every((r) => r.items.some((i) => i.type === 'cardio')));
+      .routines.some((r) => r.items.some((i) => i.type === 'cardio')));
 
   check('the health-markers plan carries the medical note',
     buildPlan({ goal: 'metabolic', days: 3, equipment: 'gym', level: 'some' })

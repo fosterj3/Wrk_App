@@ -23,7 +23,7 @@ const APP_VERSION = (() => {
  * inviting someone to tell you something and then handing them a dead link is
  * worse than not asking.
  */
-const FEEDBACK_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSeTSe5I7CkeAEednuXicMvKt_d-C-ndT-ay0BpyOKVuvV_20A/viewform';
+const FEEDBACK_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSeTSe5I7CkeAEednuXicMvKt_d-C-ndT-ay0BpyOKVuvV_20A/viewform?usp=dialog';
 
 /* ------------------------------------------------------------------ store */
 

@@ -902,6 +902,33 @@ meaningless once it's a timed hold, and keeping it would show nonsense in the ro
 Clearing a name field doesn't erase the name; the blank simply isn't saved, so you can select-all
 and retype without losing it if you change your mind.
 
+### Close doesn't mean throw it away
+
+Two sheets hold work that exists nowhere else yet — building a routine, and checking over a paste.
+Closing either one used to discard it silently. The paste preview lost every correction you'd just
+made; the routine editor lost the routine's own name, because that input was only read by **Save
+routine**.
+
+Both now ask, with **three** ways out rather than two:
+
+| | |
+| --- | --- |
+| **Save** | Keep it and close |
+| **Keep editing** | Back exactly where you were, nothing lost |
+| **Discard** | Throw it away — reverts an existing routine to how it was, and removes a new one entirely |
+
+Three rather than two because a yes/no dialog has to make one of *save* and *discard* the Cancel
+button — and Cancel is also what Escape and a mistaken tap outside do. The quick way out would
+sometimes be the one that destroys the work. Closing the question itself means *keep editing*, the
+only answer that's safe to infer.
+
+It only asks when there's something to lose: an unchanged routine closes straight away, and so does
+a brand-new one you put nothing in. The exercise picker's Close now returns to the routine you were
+building rather than abandoning it.
+
+A sheet opts in by setting `sheetGuard` immediately after `openSheet()`. `openSheet()` clears it
+first, so every other sheet closes immediately and none can inherit the previous one's guard.
+
 ## Notes on an exercise
 
 Separate from the note on a whole workout. A note belongs to the exercise and follows it around:

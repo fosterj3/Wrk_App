@@ -122,7 +122,19 @@ function applyTheme() {
 
 /* ------------------------------------------------------------------ sheets */
 
+/* ---------------------------------------------------------- unsaved work
+
+   Close used to mean "throw it away". That is fine for a sheet that only shows
+   you something, and wrong for the two that don't: building a routine, and
+   checking over a paste. Both hold work that exists nowhere else yet.
+
+   A sheet opts in by setting `sheetGuard` straight after openSheet(). openSheet
+   clears it first, so anything that doesn't opt in still closes immediately and
+   no sheet can inherit the previous one's guard.                            */
+let sheetGuard = null;
+
 function openSheet(title, html) {
+  sheetGuard = null;
   $('#sheet-title').textContent = title;
   $('#sheet-body').innerHTML = html;
   $('#sheet').hidden = false;
@@ -133,9 +145,44 @@ function openSheet(title, html) {
 }
 
 function closeSheet() {
+  sheetGuard = null;
   $('#sheet').hidden = true;
   $('#sheet-body').innerHTML = '';
   document.body.classList.remove('sheet-open');
+}
+
+/**
+ * Close, unless there's something to lose first.
+ *
+ * Three ways out rather than two. A yes/no dialog would have to make one of
+ * "save" and "discard" the Cancel button, and Cancel is also what Escape and a
+ * mistaken tap outside do — so the quick way out would sometimes be the one
+ * that destroys the work.
+ */
+function requestCloseSheet() {
+  const g = sheetGuard;
+  if (!g) { closeSheet(); return; }
+
+  /* A sheet opened from another one goes back to it rather than closing. */
+  if (g.back) { g.back(); return; }
+
+  /* Close on the question itself. Asking it again would be a dead end, and of
+     the three answers the only safe one to infer is the one that changes
+     nothing. */
+  if (g.asking) { g.asking = false; g.reopen(); return; }
+
+  /* Read anything living only in the DOM before the confirm replaces it. */
+  if (g.capture) g.capture();
+  if (!g.isDirty()) { closeSheet(); return; }
+
+  openSheet(g.title, `
+    <p class="small muted" style="margin-top:0">${g.lead}</p>
+    <button class="btn block" data-action="guard-save">${esc(g.saveLabel)}</button>
+    <button class="btn block secondary" data-action="guard-cancel" style="margin-top:8px">Keep editing</button>
+    <button class="linkish" data-action="guard-discard"
+            style="margin-top:14px;color:var(--danger)">${esc(g.discardLabel)}</button>`);
+  g.asking = true;
+  sheetGuard = g;          /* openSheet just cleared it */
 }
 
 /* -------------------------------------------------------------- rest timer */
@@ -1684,6 +1731,71 @@ function itemEditor(item, ctx, opts) {
   </div>`;
 }
 
+/* The state of one routine when its edit session began, so Discard has
+   something to go back to. Taken at the entry points only — the editor
+   re-renders itself on every change, and re-snapshotting there would make the
+   snapshot equal to the edit it was supposed to undo. */
+let routineEdit = null;
+
+function beginRoutineEdit(id, isNew) {
+  const r = state.routines.find((x) => x.id === id);
+  routineEdit = r ? { id, isNew, before: JSON.stringify(r) } : null;
+}
+
+/* The routine's own name lives only in its input until something reads it —
+   which is exactly the edit that used to be lost on Close. */
+function syncRoutineName(routineId) {
+  const box = $('#routine-name');
+  const id = routineId || (routineEdit && routineEdit.id);
+  const r = id && state.routines.find((x) => x.id === id);
+  if (!box || !r) return;
+  const name = box.value.trim();
+  if (name && name !== r.name) { r.name = name; save(); }
+}
+
+function routineGuard(id) {
+  if (!routineEdit || routineEdit.id !== id) return null;
+  const { isNew, before } = routineEdit;
+  const find = () => state.routines.find((x) => x.id === id);
+
+  return {
+    title: 'Save this routine?',
+    lead: isNew
+      ? "This routine hasn't been saved yet."
+      : "You've changed this routine since you opened it.",
+    saveLabel: 'Save routine',
+    discardLabel: isNew ? 'Discard the whole routine' : 'Discard my changes',
+    capture: syncRoutineName,
+    reopen: () => editRoutine(id),
+    isDirty: () => {
+      const r = find();
+      if (!r) return false;
+      /* A brand-new routine nobody put anything in isn't work worth a
+         question — it just stays in the list, empty, as it always did. */
+      return isNew ? r.items.length > 0 : JSON.stringify(r) !== before;
+    },
+    onSave: () => {
+      routineEdit = null;
+      save();
+      closeSheet();
+      render();
+      toast('Routine saved');
+    },
+    onDiscard: () => {
+      if (isNew) {
+        state.routines = state.routines.filter((x) => x.id !== id);
+      } else {
+        const i = state.routines.findIndex((x) => x.id === id);
+        if (i >= 0) state.routines[i] = JSON.parse(before);
+      }
+      routineEdit = null;
+      save();
+      closeSheet();
+      render();
+    },
+  };
+}
+
 function editRoutine(id) {
   const r = state.routines.find((x) => x.id === id);
   if (!r) return;
@@ -1702,6 +1814,8 @@ function editRoutine(id) {
     </div>
     <button class="btn block secondary" data-action="routine-add-item" data-id="${id}" style="margin-top:8px">+ Add exercise</button>
     <button class="btn block" data-action="routine-save" data-id="${id}" style="margin-top:10px">Save routine</button>`);
+
+  sheetGuard = routineGuard(id);
 }
 
 /* --------------------------------------------------------- build me a plan */
@@ -1858,7 +1972,38 @@ Run 3.1 mi 28 min`;
 
 let pendingImport = null;
 
+/* What's in the textarea, kept out here because the confirm sheet replaces the
+   textarea it lives in — and losing it there would be the exact bug this whole
+   guard exists to stop. */
+let pasteText = '';
+
+function previewPaste(text) {
+  if (!String(text || '').trim()) { toast('Paste something first'); return; }
+  pendingImport = parseWorkoutText(text);
+  pendingImport.text = text;
+  pasteText = text;
+  renderImportPreview();
+}
+
+function confirmImport() {
+  if (!pendingImport) return;
+  syncImportNames();
+  const added = pendingImport.routines.length;
+  pendingImport.routines.forEach((r) => {
+    state.routines.push({ id: uid(), name: r.name, items: r.items });
+  });
+  pendingImport = null;
+  pasteText = '';
+  save();
+  closeSheet();
+  go('routines');
+  toast(`Added ${plural(added, 'routine')}`);
+}
+
 function openImportSheet(text) {
+  /* Track what the box starts with, or a discarded paste from earlier would
+     make the next empty box look like unsaved work. */
+  pasteText = text || '';
   openSheet('Paste from your notes', `
     <p class="small muted" style="margin-top:0">
       Paste a workout or a whole program. Most note formats work —
@@ -1873,6 +2018,21 @@ function openImportSheet(text) {
               placeholder="${esc(SAMPLE_PASTE)}">${esc(text || '')}</textarea>
     <button class="btn block" data-action="paste-preview" style="margin-top:10px">See what I got</button>
     <button class="linkish" data-action="paste-sample" style="margin-top:6px">Try it with an example</button>`);
+
+  /* Nothing has been created from this text yet, so there's nothing to "save"
+     — the way forward is to read it, which is what the first button offers. */
+  sheetGuard = {
+    title: "You haven't added this yet",
+    lead: 'Nothing has been created from this text. Read it first and you can fix '
+      + 'the names, sets and reps before anything is saved.',
+    saveLabel: 'See what I got',
+    discardLabel: 'Discard what I pasted',
+    capture: () => { const b = $('#paste-box'); if (b) pasteText = b.value; },
+    reopen: () => openImportSheet(pasteText),
+    isDirty: () => pasteText.trim().length > 0,
+    onSave: () => previewPaste(pasteText),
+    onDiscard: () => { pendingImport = null; pasteText = ''; closeSheet(); },
+  };
 }
 
 function renderImportPreview() {
@@ -1925,6 +2085,22 @@ function renderImportPreview() {
       Add ${routines.length} routine${routines.length === 1 ? '' : 's'}
     </button>
     <button class="btn block secondary" data-action="paste-back" style="margin-top:8px">Back to the text</button>`);
+
+  /* The expensive one to lose: every correction made on this screen lives only
+     in pendingImport until Add is pressed. */
+  sheetGuard = {
+    title: 'Add these routines?',
+    lead: `${plural(total, 'exercise')} ready to go, in `
+      + `${plural(routines.length, 'routine')}. Closing without adding them loses `
+      + 'this and anything you fixed here.',
+    saveLabel: `Add ${plural(routines.length, 'routine')}`,
+    discardLabel: 'Discard',
+    capture: syncImportNames,
+    reopen: renderImportPreview,
+    isDirty: () => !!pendingImport && pendingImport.routines.length > 0,
+    onSave: confirmImport,
+    onDiscard: () => { pendingImport = null; pasteText = ''; closeSheet(); },
+  };
 }
 
 /* Routine names, before the sheet is replaced. The exercise fields write
@@ -3290,7 +3466,7 @@ document.addEventListener('click', (ev) => {
   const btn = ev.target.closest('[data-action], [data-close]');
   if (!btn) return;
 
-  if (btn.hasAttribute('data-close')) { closeSheet(); return; }
+  if (btn.hasAttribute('data-close')) { requestCloseSheet(); return; }
 
   const { action, id } = btn.dataset;
   const row = btn.closest('[data-set]');
@@ -3457,11 +3633,13 @@ document.addEventListener('click', (ev) => {
       state.routines.push(r);
       save();
       go('routines');
+      beginRoutineEdit(r.id, true);
       editRoutine(r.id);
       break;
     }
 
     case 'edit-routine':
+      beginRoutineEdit(id, false);
       editRoutine(id);
       break;
 
@@ -3532,18 +3710,13 @@ document.addEventListener('click', (ev) => {
       $('#paste-box').value = SAMPLE_PASTE;
       break;
 
-    case 'paste-preview': {
-      const text = $('#paste-box').value;
-      if (!text.trim()) { toast('Paste something first'); return; }
-      pendingImport = parseWorkoutText(text);
-      pendingImport.text = text;
-      renderImportPreview();
+    case 'paste-preview':
+      previewPaste($('#paste-box').value);
       break;
-    }
 
     case 'paste-back':
       syncImportNames();
-      openImportSheet(pendingImport ? pendingImport.text : '');
+      openImportSheet(pendingImport ? pendingImport.text : pasteText);
       break;
 
     /* Removing and reordering, in either editor. The routine list each one
@@ -3578,19 +3751,9 @@ document.addEventListener('click', (ev) => {
       break;
     }
 
-    case 'paste-confirm': {
-      syncImportNames();
-      const added = pendingImport.routines.length;
-      pendingImport.routines.forEach((r) => {
-        state.routines.push({ id: uid(), name: r.name, items: r.items });
-      });
-      pendingImport = null;
-      save();
-      closeSheet();
-      go('routines');
-      toast(`Added ${added} routine${added === 1 ? '' : 's'}`);
+    case 'paste-confirm':
+      confirmImport();
       break;
-    }
 
     case 'delete-routine':
       if (!confirm('Delete this routine? Workouts you already logged are not affected.')) return;
@@ -3599,14 +3762,14 @@ document.addEventListener('click', (ev) => {
       render();
       break;
 
-    case 'routine-add-item': {
+    case 'routine-add-item':
       /* Keep any name edit before the picker replaces the sheet. */
-      const nameInput = $('#routine-name');
-      const r = state.routines.find((x) => x.id === id);
-      if (nameInput && r) { r.name = nameInput.value.trim() || r.name; save(); }
+      syncRoutineName(id);
       exercisePicker('pick-into-routine', id);
+      /* Close here means "never mind, no exercise" — so it goes back to the
+         routine rather than abandoning it. */
+      sheetGuard = { back: () => editRoutine(id) };
       break;
-    }
 
     case 'pick-into-routine':
       chooseExercise('pick-into-routine', btn.dataset.ctx, btn.dataset.name, btn.dataset.type);
@@ -3614,14 +3777,33 @@ document.addEventListener('click', (ev) => {
 
 
     case 'routine-save': {
-      const r = state.routines.find((x) => x.id === id);
-      r.name = $('#routine-name').value.trim() || r.name;
+      syncRoutineName(id);
+      routineEdit = null;
       save();
       closeSheet();
       render();
       toast('Routine saved');
       break;
     }
+
+    /* ---- the "you have unsaved work" sheet ---- */
+    case 'guard-save': {
+      const g = sheetGuard;
+      sheetGuard = null;
+      if (g) g.onSave();
+      break;
+    }
+
+    case 'guard-discard': {
+      const g = sheetGuard;
+      sheetGuard = null;
+      if (g) g.onDiscard();
+      break;
+    }
+
+    case 'guard-cancel':
+      if (sheetGuard) sheetGuard.reopen();
+      break;
 
     case 'add-custom': {
       const name = ($('#ex-search') ? $('#ex-search').value : '').trim();

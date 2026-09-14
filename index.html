@@ -30,8 +30,8 @@
 <!-- See app.html: in flight before the CSS is parsed, and crossorigin because
      fonts are always fetched in CORS mode. -->
 <link rel="preload" href="fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="styles.css?v=43">
-<link rel="stylesheet" href="landing.css?v=43">
+<link rel="stylesheet" href="styles.css?v=44">
+<link rel="stylesheet" href="landing.css?v=44">
 </head>
 <body class="landing">
 
@@ -176,28 +176,10 @@ Vinyasa 45 min</pre>
     <p>
       The trade is real and worth saying out loud: <strong>you are the backup</strong>, and your
       log lives on one device. Export whenever you like — a restoreable file, or a spreadsheet you
-      can open anywhere or send to a coach. Free forever, whether you have ever paid me anything
-      or not.
+      can open anywhere or send to a coach. Your training leaves in a format that will still open
+      in twenty years.
     </p>
 
-    <h3 class="money-head">How this is paid for</h3>
-    <p>Honestly, right now it isn't. No ads, no analytics, nothing to sell.</p>
-    <p>If that changes, here is the rule I am holding myself to:</p>
-    <ul class="rules">
-      <li><strong>Everything free today stays free.</strong> New things may cost. Nothing you
-        already rely on will start costing.</li>
-      <li><strong>You pay once for anything that costs me nothing to run.</strong> A feature on
-        your phone is a feature on your phone.</li>
-      <li><strong>You pay monthly only for the one thing with a monthly bill</strong> — syncing
-        between your devices, if I build it. Optional, end-to-end encrypted, and the app works
-        exactly as it does now if you never touch it.</li>
-      <li><strong>You are never the product.</strong> No ads. Ever. Your export stays free and
-        complete.</li>
-    </ul>
-    <p id="tip-jar" class="small muted" hidden>
-      Want to chip in before any of that exists? <a id="tip-link" href="#">There's a tip jar.</a>
-      Entirely optional — the app is the same either way.
-    </p>
   </section>
 
   <section class="install">
@@ -264,33 +246,26 @@ Vinyasa 45 min</pre>
 
 </main>
 
-<script src="util.js?v=43"></script>
+<script src="util.js?v=44"></script>
 <script>
   /* ------------------------------------------------------------- tip jar
      Paste a Ko-fi / Buy Me a Coffee / GitHub Sponsors URL between the quotes
      and the line appears. Left empty, the whole paragraph stays hidden — a
      dead "support me" link is worse than no link, and the claim above it is
      that nothing here is asking you for anything. */
-  var SUPPORT_URL = '';
-
-  /* Kept in step with FEEDBACK_URL in app.js. Both hide their own line when
-     empty, so a dead link can never end up under a paragraph promising you
-     that asking leads somewhere. */
+  /* Kept in step with FEEDBACK_URL in app.js. Hides its own line when empty, so
+     a dead link can never end up under a sentence inviting you to use it. */
   var FEEDBACK_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSeTSe5I7CkeAEednuXicMvKt_d-C-ndT-ay0BpyOKVuvV_20A/viewform';
 
   (function () {
-    var wire = function (pId, aId, url) {
-      if (!url) return;
-      var p = document.getElementById(pId);
-      var a = document.getElementById(aId);
-      if (!p || !a) return;
-      a.href = url;
-      a.rel = 'noopener';
-      a.target = '_blank';
-      p.hidden = false;
-    };
-    wire('tip-jar', 'tip-link', SUPPORT_URL);
-    wire('feedback-line', 'feedback-link', FEEDBACK_URL);
+    if (!FEEDBACK_URL) return;
+    var p = document.getElementById('feedback-line');
+    var a = document.getElementById('feedback-link');
+    if (!p || !a) return;
+    a.href = FEEDBACK_URL;
+    a.rel = 'noopener';
+    a.target = '_blank';
+    p.hidden = false;
   })();
 
   /* Someone with a log already doesn't need the sales pitch on the button. */

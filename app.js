@@ -25,49 +25,6 @@ const APP_VERSION = (() => {
  */
 const FEEDBACK_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSeTSe5I7CkeAEednuXicMvKt_d-C-ndT-ay0BpyOKVuvV_20A/viewform';
 
-/**
- * What changed, newest first.
- *
- * Written for whoever uses the app, not from the commit log: "you can fix the
- * sets and reps before saving" rather than "refactored the import preview".
- * This is the half that turns a suggestion box into something worth writing to
- * — people need to see that asking led somewhere.
- */
-const CHANGELOG = [
-  {
-    v: '42', on: '2026-09-14',
-    items: ['Said plainly on the front page where your training lives, and how this would ever be paid for.'],
-  },
-  {
-    v: '40–41', on: '2026-09-14',
-    items: [
-      'Every stat on the Data tab now opens — tap Weight lifted to see which exercises it came from, or Cardio to see the days and whether you ran or rode.',
-      '"Per week" became Time trained, which means the same thing whether you lift, run or do yoga.',
-      'The time-of-day chart shows what Early and Midday actually mean, and can tell you when you lift most, do most cardio or train longest.',
-      'Charts read better: daily views are bars again rather than a spiky line, and the axis wastes less room.',
-    ],
-  },
-  {
-    v: '39', on: '2026-09-14',
-    items: ['Closing a routine or a paste you were still working on now asks, instead of throwing it away.'],
-  },
-  {
-    v: '38', on: '2026-09-14',
-    items: [
-      'Exercises you invent are offered again next time, under "Added by you", so you never retype one.',
-      'Type a name close to one you already use and it offers the existing one, so a single exercise stops becoming two half-histories.',
-    ],
-  },
-  {
-    v: '37', on: '2026-09-14',
-    items: [
-      'Pasting a program written out in full now works — numbered exercises, sets on the line below, bulleted form cues and all.',
-      'Those cues are kept as notes on the exercise, and notes follow it into your workout.',
-      'The paste preview lets you fix the sets and reps, not just the name.',
-    ],
-  },
-];
-
 /* ------------------------------------------------------------------ store */
 
 /* Deliberately still 'wrk.v1' — the app was renamed to Cadence, but changing
@@ -957,7 +914,7 @@ function feedbackCard() {
         <strong>This gets updated most weeks.</strong>
         <p class="small muted" style="margin:6px 0 0">It updates itself — close it and reopen
           and you're current. If something's broken or missing, say so and it'll probably get
-          fixed. Settings has the feedback link and what's changed lately.</p>
+          fixed. The feedback link is in Settings.</p>
         <button class="linkish" data-action="go-about" style="margin-top:8px">Take me there</button>
       </div>
       <button class="icon-btn" data-action="dismiss-feedback-card"
@@ -3584,20 +3541,6 @@ function aboutCard() {
         <a class="btn block secondary" href="${esc(FEEDBACK_URL)}" target="_blank" rel="noopener">
           Send feedback
         </a>` : ''}
-
-      <h3 class="settings-group">What's new</h3>
-      ${CHANGELOG.map((rel) => `
-        <div class="release">
-          <div class="release-head">
-            <b>Version ${esc(rel.v)}</b>
-            <!-- keyToDate, not new Date(): a bare "2026-09-14" parses as UTC
-                 midnight and then displays in local time, which shows the 13th
-                 to anyone west of Greenwich. -->
-            <span class="muted">${esc(keyToDate(rel.on).toLocaleDateString(undefined,
-              { month: 'short', day: 'numeric' }))}</span>
-          </div>
-          <ul>${rel.items.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>
-        </div>`).join('')}
     </div>`;
 }
 

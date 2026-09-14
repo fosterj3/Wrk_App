@@ -100,15 +100,22 @@ But the real reason is that **nobody can verify anybody's bench press.** An unve
 rewards whoever is loosest with the truth, and it selects for ego-lifting over training. Strava
 has GPS and still has a cheating problem.
 
-Community, where it exists here, is users and the person building it — asked for, shipped, and
-visible in *Settings → What's new*. Users reach each other through artifacts the app already
-makes (a routine as text, a week as an image) on platforms that already exist. None of that
-needs a server.
+Community, where it exists here, is users and the person building it — asked for, then shipped,
+via the feedback link in *Settings → About & updates*. Users reach each other through artifacts
+the app already makes (a routine as text, a week as an image) on platforms that already exist.
+None of that needs a server.
+
+An in-app changelog was built and then removed: a list of version numbers with bullet points
+under each read like release notes for developers, in a place people go to change their rest
+timer. If the "asked for, then shipped" loop needs to be visible later, it wants a lighter form
+than that.
 
 ### The money rule
 
-Stated on the landing page so it's a commitment rather than an intention, and repeated here so it
-survives a redesign:
+**Not published.** It was on the landing page for one release and taken down — the page is
+stronger making one claim well than explaining a price list for something that doesn't exist.
+Kept here as the working principle, so a decision made deliberately doesn't get remade by
+accident:
 
 1. **Everything free today stays free.** New things may cost; nothing anyone already relies on
    starts costing.

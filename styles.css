@@ -649,16 +649,6 @@ button.tile:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 
 .note-dot{opacity:.55;font-size:11px}
 
-/* What's new. Dense on purpose — it's a list you skim to see the thing you
-   asked for, not a blog. */
-.release{border-top:1px solid var(--line);padding:12px 0 2px}
-.release:first-of-type{border-top:0;padding-top:4px}
-.release-head{display:flex;align-items:baseline;gap:8px;font-size:13px}
-.release-head .muted{font-size:12px}
-.release ul{margin:6px 0 0;padding-left:18px}
-.release li{color:var(--muted);font-size:13px;line-height:1.5;margin:0 0 5px}
-.release li::marker{color:var(--accent-fg)}
-
 /* A suggestion, not a warning — nothing is wrong yet, the log is just split
    across two spellings. Uses the accent rather than the warning colour. */
 .card.dupe{border-color:var(--accent);margin-bottom:10px}

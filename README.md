@@ -732,7 +732,7 @@ Pick a window — 2 weeks, 4 weeks, 12 weeks, 6 months, all time — and everyth
 
 - **Headline** — workouts in the window, against the same-length window before it.
 - **Tiles** — time trained, current streak, weight lifted, cardio minutes. **All four open**; see below.
-- **How often you trained** — a line, zero-based. Per day on the short windows, per week on the longer ones, per month once "all time" passes ~6 months.
+- **How often you trained** — per day on the short windows, per week on the longer ones, per month once "all time" passes ~6 months. Columns by the day, a line by the week; see below.
 - **When you train** — see below.
 - **What kind of training** — lifting / cardio / both, as one stacked bar.
 - **Strength progress** — a line per exercise. Defaults to estimated 1RM (Epley) so a heavy
@@ -795,6 +795,40 @@ Three deliberate choices worth knowing:
   collapse in training. On a line chart that meant a plunge off the end, so the last segment goes
   **dashed** instead — same idea, drawn for a line.
 - **A trend with fewer than two points falls back to columns.** A line needs somewhere to go.
+
+### Columns by the day, a line by the week
+
+A line is the right mark for a trend and the wrong one for sparse daily data, which took seeing to
+notice. Somebody doing cardio every other day produces `0, 25, 0, 10, 0, 30` — and a line through
+that is a **comb**, spending half its ink on the days they rested. "Workouts per day" is worse
+still: the series is 0 or 1, so the line is a square wave.
+
+Columns have no such problem. A rest day is simply an absent bar, and fourteen of them read as a
+habit tracker — which is the whole reason short windows bucket by day. So the two trend charts
+switch on bucket size: **columns when bucketed by day, a line by week or month.** Lifting volume
+was always columns and stays so.
+
+### The axis top
+
+`niceScale` used to take the first step size that fit and stop, which routinely threw away a third
+of the plot. A 101-minute week scaled to a top of 150, so the tallest mark on the chart reached
+two-thirds of the way up and everything shorter was squashed into the bottom half.
+
+It now tries every step in the 1/2/5/10 family — plus 2.5 where the values aren't whole numbers,
+which alone fixes most cases — and keeps whichever wastes least vertical space, breaking ties
+towards four gridlines. Gridline count is held between 2 and 7: fewer is unreadable, more is a
+ruler.
+
+| Max value | Old axis | New axis |
+| --- | --- | --- |
+| 25 min | 0–30 (83% used) | 0–25 (100%) |
+| 45 min | 0–60 (75%) | 0–50 (90%) |
+| 101 min | 0–150 (67%) | 0–120 (84%) |
+| 640 min | 0–800 (80%) | 0–700 (91%) |
+
+Counts are excluded from the 2.5 step, because there is no such thing as a gridline at two and a
+half workouts. The tests assert the axis top never falls below the data — an axis that crops the
+tallest mark draws it outside the chart.
 
 ### Chart colours
 

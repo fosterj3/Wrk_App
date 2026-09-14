@@ -848,6 +848,42 @@ describe('time of day', () => {
   check('counting workouts needs no verdict', bestTimeOfDay(enough.bands, 'count').need === 0);
 });
 
+describe('choosing an axis', () => {
+  /* The measure that matters: how much of the plot the data actually uses.
+     Scaling a 101-minute week to a top of 150 leaves the tallest column at
+     two-thirds height and everything else squashed underneath it. */
+  const fill = (max, ticks, integer) => max / niceScale(max, ticks, integer).max;
+  const lines = (max, ticks, integer) => {
+    const s = niceScale(max, ticks, integer);
+    return Math.round(s.max / s.step);
+  };
+
+  check('a spiky weekly total uses most of the plot', fill(101) > 0.8, `${fill(101)}`);
+  check('...and an awkward one does too', fill(45) > 0.8, `${fill(45)}`);
+  check('...and a big round one', fill(52500) > 0.8, `${fill(52500)}`);
+
+  /* Whatever it picks, the top has to be at or above the data or the tallest
+     mark is drawn outside the chart. */
+  [1, 2, 3, 7, 12, 25, 45, 101, 640, 2400, 52500, 0.5, 7.5].forEach((v) => {
+    check(`${v} fits under its axis top`, niceScale(v).max >= v, `${niceScale(v).max}`);
+  });
+
+  /* Gridlines are a legibility floor and ceiling, not a preference. */
+  [3, 12, 45, 101, 640, 52500].forEach((v) => {
+    const n = lines(v);
+    check(`${v} gets a readable number of gridlines`, n >= 2 && n <= 7, `${n} lines`);
+  });
+
+  /* Counts can't have a gridline at 2.5 workouts. */
+  [1, 2, 3, 4, 5, 9, 14].forEach((v) => {
+    const s = niceScale(v, 4, true);
+    check(`${v} workouts gets whole-number gridlines`, Number.isInteger(s.step), `step ${s.step}`);
+  });
+
+  eq('nothing logged still has an axis', niceScale(0), { max: 1, step: 1 });
+  eq('a negative max is treated as nothing', niceScale(-5), { max: 1, step: 1 });
+});
+
 describe('drawing a trend', () => {
   const pts = (...vals) => vals.map((v, i) => ({ label: `w${i}`, value: v, tip: '' }));
 

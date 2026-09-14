@@ -684,14 +684,39 @@ function compact(n) {
 
 /* `integer` forces a whole-number step. Without it a 0..1 workout count picks a
    0.5 step and the axis renders as "0, 1, 1" once the labels are rounded. */
+/**
+ * Pick the axis top and gridline spacing.
+ *
+ * The old version took the first step size that fit and stopped there, which
+ * routinely threw away a third of the plot: a 101-minute week scaled to 150,
+ * so the tallest thing on the chart reached two-thirds of the way up and every
+ * smaller value was squashed into the bottom half.
+ *
+ * This tries every sensible step and keeps the one that wastes least, breaking
+ * ties towards the requested number of gridlines. Same 1/2/5/10 family, plus
+ * 2.5 where the values aren't whole numbers — that one step alone fixes most
+ * of the wasted headroom.
+ */
 function niceScale(max, ticks, integer) {
   if (!(max > 0)) return { max: 1, step: 1 };
-  const raw = max / (ticks || 4);
-  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
-  const norm = raw / mag;
-  let step = (norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10) * mag;
-  if (integer) step = Math.max(1, Math.round(step));
-  return { max: Math.ceil(max / step) * step, step };
+  const target = ticks || 4;
+  const mag = Math.pow(10, Math.floor(Math.log10(max / target)));
+  const family = integer ? [1, 2, 5, 10] : [1, 2, 2.5, 5, 10];
+
+  let best = null;
+  family.forEach((m) => {
+    const step = m * mag;
+    if (integer && step < 1) return;              /* no half-a-workout gridlines */
+    const top = Math.ceil(max / step) * step;
+    const lines = Math.round(top / step);
+    /* Two gridlines is unreadable, eight is a ruler. */
+    if (lines < 2 || lines > 7) return;
+    const score = top / max + Math.abs(lines - target) * 0.02;
+    if (!best || score < best.score) best = { max: top, step, score };
+  });
+
+  /* Nothing fit — a max of 1 or 2, where there is only one sensible answer. */
+  return best ? { max: best.max, step: best.step } : { max, step: max };
 }
 
 /* --------------------------------------------------------------- geometry */

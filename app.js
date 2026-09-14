@@ -2407,6 +2407,10 @@ function renderData() {
      A day is never "partial" that way — you either trained or you didn't. */
   const isPartial = (b) => mode !== 'day' && now >= b.start && now < b.end;
 
+  /* Daily buckets are sparse by nature: rest days are zeros, and a line drawn
+     through them is a comb rather than a trend. See trendChart. */
+  const perDay = mode === 'day';
+
   /* --- per-bucket series --- */
   const freq = buckets.map((b) => {
     const list = sessionsIn(all, b.start, b.end);
@@ -2538,7 +2542,7 @@ function renderData() {
     <div class="card">
       <div class="card-title">How often you trained</div>
       <div class="card-sub">Workouts per ${mode}</div>
-      ${trendChart(freq, (v) => plural(v, 'workout'), { integer: true })}
+      ${trendChart(freq, (v) => plural(v, 'workout'), { integer: true, perDay })}
     </div>
 
     ${clock.counted ? `
@@ -2616,7 +2620,7 @@ function renderData() {
     <div class="card">
       <div class="card-title">Cardio minutes</div>
       <div class="card-sub">Totalled per ${mode}</div>
-      ${trendChart(cardioSeries, (v) => `${Math.round(v)} min`, { integer: true })}
+      ${trendChart(cardioSeries, (v) => `${Math.round(v)} min`, { integer: true, perDay })}
     </div>` : ''}
 
     ${top.length ? `
@@ -2735,14 +2739,25 @@ function columnOrLine(points, unit) {
 }
 
 /**
- * A trend over time: a line, because that's what a trend looks like, but
- * columns when there are too few points for a line to be a line. Zero-based —
- * these are counts and totals, where a cropped axis would turn one extra
- * workout into a cliff.
+ * A trend over time: a line, because that is what a trend looks like — but
+ * only where there is a trend to trace.
+ *
+ * Per-day buckets are the exception, and it took seeing it to notice. Someone
+ * doing cardio every other day produces 0, 25, 0, 10, 0, 30 — and a line drawn
+ * through that is a comb, half its ink spent on the days they rested. Worse,
+ * "workouts per day" is 0 or 1, so the line is a square wave.
+ *
+ * Columns have no such problem: a rest day is simply an absent bar, and 14 of
+ * them read as a habit tracker, which is the reason daily buckets exist at all.
+ * So: columns by the day, a line by the week or month.
+ *
+ * Zero-based either way — these are counts and totals, where a cropped axis
+ * would turn one extra workout into a cliff.
  */
 function trendChart(points, fmtValue, opts) {
-  if (points.length < 2) return columnChart(points, opts);
-  return lineChart(points, fmtValue, { ...(opts || {}), zeroBase: true });
+  const o = opts || {};
+  if (o.perDay || points.length < 2) return columnChart(points, o);
+  return lineChart(points, fmtValue, { ...o, zeroBase: true });
 }
 
 /** The tile face: "6h 20m", or "45 min" under the hour. */

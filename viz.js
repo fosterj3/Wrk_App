@@ -947,7 +947,7 @@ function buildRecapCanvas(sessions, units) {
 function buildCsv(sessions, units) {
   const head = [
     'Date', 'Time', 'Workout', 'Exercise', 'Type', 'Set',
-    `Weight (${units})`, 'Reps', 'Distance', 'Minutes', 'Seconds',
+    `Weight (${units})`, 'Reps', 'Distance', 'Minutes', 'Seconds', 'Note',
   ];
 
   const cell = (v) => {
@@ -970,6 +970,10 @@ function buildCsv(sessions, units) {
             date, time, s.name, e.name, e.type, i + 1,
             set.weight ?? '', set.reps ?? '',
             set.distance ?? '', set.minutes ?? '', set.seconds ?? '',
+            /* The note belongs to the exercise, not the set, so it repeats down
+               its rows. Cheaper than a second file, and it survives being
+               opened and re-saved in a spreadsheet. */
+            e.note ?? '',
           ].map(cell).join(','));
         });
       });
@@ -1027,6 +1031,7 @@ const CSV_COLUMNS = {
   distance: 'distance', dist: 'distance',
   minutes: 'minutes', min: 'minutes', mins: 'minutes', duration: 'minutes',
   seconds: 'seconds', sec: 'seconds', secs: 'seconds', hold: 'seconds',
+  note: 'note', notes: 'note', comment: 'note', comments: 'note',
 };
 
 function csvColumn(header) {
@@ -1122,6 +1127,10 @@ function csvToSessions(text) {
       entry = { id: uid(), name: exercise, type, sets: [] };
       session.entries.push(entry);
     }
+    /* Repeated down every row of the exercise on export; the first non-empty
+       one wins so a partly-filled column can't blank an existing note. */
+    const note = cell(r, 'note');
+    if (note && !entry.note) entry.note = note;
 
     const set = { id: uid(), done: true };   /* it already happened */
     if (type === 'cardio') {

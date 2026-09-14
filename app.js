@@ -960,6 +960,9 @@ function makeEntry(item) {
     id: uid(),
     name: item.name,
     type,
+    /* The routine's cues come with it — a form reminder is worth most while
+       you're actually doing the exercise. */
+    ...(item.note ? { note: String(item.note) } : {}),
     sets: targets.map((t) => {
       const s = newSet(type);
       if (type === 'cardio') {
@@ -1270,6 +1273,8 @@ function renderEntry(entry, index, all) {
               aria-label="Move ${esc(entry.name)} down">&darr;</button>` : ''}
     </div>
 
+    ${entry.note ? `<p class="ex-note">${esc(entry.note)}</p>` : ''}
+
     ${last ? `
       <div class="lastline">
         <span class="muted">Last time &middot; ${esc(last.date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }))}</span>
@@ -1342,6 +1347,8 @@ function renderEntry(entry, index, all) {
 
     <div class="row" style="margin-top:10px">
       <button class="ghost small" data-action="add-set" data-id="${entry.id}">+ Set</button>
+      <button class="ghost small" data-action="entry-note" data-id="${entry.id}">${
+        entry.note ? 'Edit note' : 'Note'}</button>
       ${entry.type === 'lifting'
         ? `<button class="ghost small" data-action="plates" data-id="${entry.id}">Plates</button>`
         : ''}
@@ -1511,7 +1518,12 @@ function renderRoutines() {
           <div class="card-title">${esc(r.name)}</div>
           <div class="card-sub">${r.items.map((i) => {
             const t = summarizeItem(i);
-            return esc(i.name) + (t ? ` <span style="opacity:.7">${esc(t)}</span>` : '');
+            /* A marker, not the note itself — a routine of six lifts with four
+               cues each would bury the routine under its own coaching. */
+            const noted = i.note
+              ? ` <span class="note-dot" title="${esc(i.note)}" aria-label="has notes">&#9998;</span>`
+              : '';
+            return esc(i.name) + (t ? ` <span style="opacity:.7">${esc(t)}</span>` : '') + noted;
           }).join('<br>') || 'No exercises yet'}</div>
         </div>
       </div>
@@ -1558,6 +1570,120 @@ function shareRoutineSheet(id) {
     <pre class="share-preview">${esc(text)}</pre>`);
 }
 
+/* ------------------------------------------------------- the exercise editor
+
+   One editor, two callers: the routine sheet and the paste-import preview. It
+   started as two, and they drifted — the preview let you rename an exercise but
+   not say how many sets it had, which made importing a written program a
+   dead end. Sharing the markup is what keeps them honest.
+
+   The two differ only in where the exercise lives and whether a change is
+   written to storage immediately, which is what `scope` selects.             */
+
+/* Listed in the order a person would think of them, which is not the order
+   EXERCISE_TYPES happens to be in. */
+const TYPE_ORDER = ['lifting', 'timed', 'cardio', 'practice'];
+const TYPE_LABELS = {
+  lifting: 'Weight &amp; reps',
+  timed: 'Held time',
+  cardio: 'Distance &amp; time',
+  practice: 'Duration only',
+};
+
+/**
+ * Resolve an editor field back to the exercise it belongs to.
+ * @returns {{item: object, persist: function}|null}
+ */
+function editorItem(el) {
+  const i = Number(el.dataset.i);
+  if (el.dataset.scope === 'import') {
+    const r = pendingImport && pendingImport.routines[Number(el.dataset.r)];
+    const item = r && r.items[i];
+    /* The preview is a draft — nothing is stored until Add is pressed. */
+    return item ? { item, persist: () => {} } : null;
+  }
+  const r = state.routines.find((x) => x.id === el.dataset.rid);
+  const item = r && r.items[i];
+  return item ? { item, persist: save } : null;
+}
+
+/** Re-render whichever sheet the field lives in, after a structural change. */
+function redrawEditor(el) {
+  if (el.dataset.scope === 'import') renderImportPreview();
+  else editRoutine(el.dataset.rid);
+}
+
+/**
+ * The fields for one exercise.
+ *
+ * `ctx` is { scope, rid, r, i } — scope and rid address the routine, r and i
+ * the position, and every input carries all four so one delegated handler can
+ * serve both editors.
+ */
+function itemEditor(item, ctx, opts) {
+  const o = opts || {};
+  const t = itemTargets(item);
+  const addr = `data-scope="${ctx.scope}" data-rid="${esc(ctx.rid || '')}" `
+    + `data-r="${ctx.r || 0}" data-i="${ctx.i}"`;
+  const field = (name, label, value, kind) => `
+    <label class="tfield">
+      <span>${label}</span>
+      <input class="text" data-ifield="${name}" ${addr}
+             type="${kind === 'text' ? 'text' : 'number'}"
+             ${kind === 'text' ? '' : 'inputmode="decimal" step="any" min="0"'}
+             value="${esc(value)}" aria-label="${label}">
+    </label>`;
+
+  /* Reps and weight accept "8" or "8/8/6", so a pyramid survives being edited.
+     Typed as text for that reason — a number input rejects the slashes. */
+  const targets = item.type === 'timed'
+    ? field('seconds', 'Seconds', t.seconds, 'text')
+    : item.type === 'cardio'
+    ? `${field('distance', 'Distance', t.distance, 'text')}
+       ${field('minutes', 'Minutes', t.minutes)}`
+    : item.type === 'practice'
+    ? field('minutes', 'Minutes', t.minutes)
+    : `${field('reps', 'Reps', t.reps, 'text')}
+       ${field('weight', `Weight (${state.settings.units})`, t.weight, 'text')}`;
+
+  /* A hold or a class is one effort, not a number of sets — offering "sets" for
+     a 45-minute yoga class is a question with no useful answer. */
+  const showSets = item.type !== 'practice';
+
+  return `
+  <div class="item-edit" data-item-row>
+    <input class="text" data-ifield="name" ${addr}
+           value="${esc(item.name)}" aria-label="Exercise name" placeholder="Exercise name">
+
+    <div class="item-edit-row">
+      <select class="text slim" data-ifield="type" ${addr} aria-label="How it's recorded">
+        ${TYPE_ORDER.map((v) => `
+          <option value="${v}" ${item.type === v ? 'selected' : ''}>${TYPE_LABELS[v]}</option>`).join('')}
+      </select>
+      ${item.custom ? '<span class="pill">new</span>' : ''}
+      <div class="spacer"></div>
+      ${o.canMove && ctx.i > 0 ? `<button class="icon-btn" data-action="item-move"
+              ${addr} data-dir="-1" aria-label="Move ${esc(item.name)} up">&uarr;</button>` : ''}
+      ${o.canMove && ctx.i < o.total - 1 ? `<button class="icon-btn" data-action="item-move"
+              ${addr} data-dir="1" aria-label="Move ${esc(item.name)} down">&darr;</button>` : ''}
+      <button class="icon-btn" data-action="item-drop" ${addr}
+              aria-label="Remove ${esc(item.name)}">&times;</button>
+    </div>
+
+    <div class="tfields">
+      ${showSets ? field('sets', 'Sets', t.sets) : ''}
+      ${targets}
+    </div>
+
+    <label class="tfield note-field">
+      <span>Notes</span>
+      <textarea class="text" data-ifield="note" ${addr} rows="2"
+                placeholder="Form cues, a setup reminder, how it felt"
+                aria-label="Notes">${esc(item.note || '')}</textarea>
+    </label>
+  </div>`;
+}
+
 function editRoutine(id) {
   const r = state.routines.find((x) => x.id === id);
   if (!r) return;
@@ -1569,22 +1695,9 @@ function editRoutine(id) {
     </label>
     <div id="routine-items">
       ${r.items.length
-        ? r.items.map((it, i) => `
-          <div class="item-edit">
-            <input class="text" data-edit-item="${i}" data-rid="${id}"
-                   value="${esc(it.name)}" aria-label="Exercise name">
-            <div class="item-edit-row">
-              <select class="text slim" data-item-type="${i}" data-rid="${id}" aria-label="How it's recorded">
-                <option value="lifting" ${it.type === 'lifting' ? 'selected' : ''}>Weight &amp; reps</option>
-                <option value="timed" ${it.type === 'timed' ? 'selected' : ''}>Held time</option>
-                <option value="cardio" ${it.type === 'cardio' ? 'selected' : ''}>Distance &amp; time</option>
-                <option value="practice" ${it.type === 'practice' ? 'selected' : ''}>Duration only</option>
-              </select>
-              <span class="small muted grow">${esc(summarizeItem(it) || '')}</span>
-              <button class="icon-btn" data-action="routine-remove-item" data-id="${id}" data-index="${i}"
-                      aria-label="Remove ${esc(it.name)}">&times;</button>
-            </div>
-          </div>`).join('')
+        ? r.items.map((it, i) => itemEditor(it,
+            { scope: 'routine', rid: id, r: 0, i },
+            { canMove: true, total: r.items.length })).join('')
         : '<p class="muted small">No exercises yet.</p>'}
     </div>
     <button class="btn block secondary" data-action="routine-add-item" data-id="${id}" style="margin-top:8px">+ Add exercise</button>
@@ -1721,6 +1834,9 @@ function renderPlanPreview() {
 
 /* ----------------------------------------------------- paste-in from notes */
 
+/* Deliberately written in two different styles — inline sets on the first day,
+   and on the following line with bulleted cues on the second, which is how
+   programs kept in a notes app are usually laid out. */
 const SAMPLE_PASTE = `Push Day A
 Bench Press 3x8 @ 185
 Incline DB Press 3 sets of 10
@@ -1728,8 +1844,16 @@ Lateral Raises 3x15
 Treadmill 20 min
 
 Pull Day
-Pull-ups 4x6
-Barbell Row 3x8 135lb
+Equipment: bands, pull-up bar
+
+1. Pull-ups
+4 × 6
+* Full hang at the bottom.
+* Chest to the bar.
+
+2. Barbell Row
+3 × 8 135lb
+
 Run 3.1 mi 28 min`;
 
 let pendingImport = null;
@@ -1739,9 +1863,12 @@ function openImportSheet(text) {
     <p class="small muted" style="margin-top:0">
       Paste a workout or a whole program. Most note formats work —
       <code>3x8</code>, <code>3 sets of 10</code>, <code>3 x 8-10 @ 185lb</code>,
-      <code>5k in 28 min</code>. Headings like <em>Push Day</em> or <em>Day 1</em>
-      become separate routines.
+      <code>5k in 28 min</code>, or the sets on the line below the exercise.
+      Bulleted form cues are kept as notes. Headings like <em>Push Day</em> or
+      <em>Day 1</em> become separate routines.
     </p>
+    <p class="small muted">Nothing is saved straight away — you get to fix the
+      names, sets and reps first.</p>
     <textarea class="text" id="paste-box" rows="10" spellcheck="false"
               placeholder="${esc(SAMPLE_PASTE)}">${esc(text || '')}</textarea>
     <button class="btn block" data-action="paste-preview" style="margin-top:10px">See what I got</button>
@@ -1767,7 +1894,8 @@ function renderImportPreview() {
     <p class="small muted" style="margin-top:0">
       Found ${total} exercise${total === 1 ? '' : 's'} in
       ${routines.length} routine${routines.length === 1 ? '' : 's'}.
-      Rename anything below, or drop what you don't want.
+      Fix anything that came through wrong — the name, how it's recorded, the
+      sets and reps. Nothing is saved until you press Add.
     </p>
 
     ${unitWarning ? `<div class="warnbox">
@@ -1780,21 +1908,9 @@ function renderImportPreview() {
       <div class="card" style="margin-top:12px">
         <input class="text" data-rname="${ri}" value="${esc(r.name)}" aria-label="Routine name">
         <div style="margin-top:10px">
-          ${r.items.map((it, ii) => {
-            const t = summarizeItem(it);
-            return `
-            <div class="item-edit">
-              <input class="text" data-pitem="${ii}" data-pr="${ri}"
-                     value="${esc(it.name)}" aria-label="Exercise name">
-              <div class="item-edit-row">
-                <span class="pill ${it.type}">${it.type}</span>
-                ${it.custom ? '<span class="pill">new</span>' : ''}
-                <span class="small muted grow">${esc(t || 'no sets given')}</span>
-                <button class="icon-btn" data-action="paste-drop" data-r="${ri}" data-i="${ii}"
-                        aria-label="Remove ${esc(it.name)}">&times;</button>
-              </div>
-            </div>`;
-          }).join('')}
+          ${r.items.map((it, ii) => itemEditor(it,
+              { scope: 'import', rid: '', r: ri, i: ii },
+              { canMove: true, total: r.items.length })).join('')}
         </div>
       </div>`).join('')}
 
@@ -1811,17 +1927,13 @@ function renderImportPreview() {
     <button class="btn block secondary" data-action="paste-back" style="margin-top:8px">Back to the text</button>`);
 }
 
-/* Keep any name edits the user made in the preview before acting on it. */
+/* Routine names, before the sheet is replaced. The exercise fields write
+   themselves into the draft as they're typed, so they need no sync. */
 function syncImportNames() {
   if (!pendingImport) return;
   $$('[data-rname]').forEach((input) => {
     const r = pendingImport.routines[Number(input.dataset.rname)];
     if (r) r.name = input.value.trim() || r.name;
-  });
-  $$('[data-pitem]').forEach((input) => {
-    const r = pendingImport.routines[Number(input.dataset.pr)];
-    const item = r && r.items[Number(input.dataset.pitem)];
-    if (item) item.name = input.value.trim() || item.name;
   });
 }
 
@@ -3109,6 +3221,7 @@ document.addEventListener('click', (ev) => {
         items: state.active.entries.map((e) => ({
           name: e.name,
           type: e.type,
+          ...(e.note ? { note: e.note } : {}),
           sets: e.sets.map((s) => {
             if (e.type === 'cardio') {
               return { ...(s.distance !== '' && { distance: Number(s.distance) }),
@@ -3309,12 +3422,35 @@ document.addEventListener('click', (ev) => {
       openImportSheet(pendingImport ? pendingImport.text : '');
       break;
 
-    case 'paste-drop': {
-      syncImportNames();
-      const r = pendingImport.routines[Number(btn.dataset.r)];
-      r.items.splice(Number(btn.dataset.i), 1);
-      pendingImport.routines = pendingImport.routines.filter((x) => x.items.length);
-      renderImportPreview();
+    /* Removing and reordering, in either editor. The routine list each one
+       edits is reached the same way, so the two share the code. */
+    case 'item-drop':
+    case 'item-move': {
+      const fromImport = btn.dataset.scope === 'import';
+      if (fromImport) syncImportNames();
+      const r = fromImport
+        ? pendingImport && pendingImport.routines[Number(btn.dataset.r)]
+        : state.routines.find((x) => x.id === btn.dataset.rid);
+      if (!r) return;
+      const i = Number(btn.dataset.i);
+
+      if (action === 'item-drop') {
+        r.items.splice(i, 1);
+      } else {
+        const to = i + Number(btn.dataset.dir);
+        if (to < 0 || to >= r.items.length) return;
+        [r.items[i], r.items[to]] = [r.items[to], r.items[i]];
+      }
+
+      if (fromImport) {
+        /* An emptied routine is nothing to import, so it goes with its last
+           exercise. */
+        pendingImport.routines = pendingImport.routines.filter((x) => x.items.length);
+        renderImportPreview();
+      } else {
+        save();
+        editRoutine(r.id);
+      }
       break;
     }
 
@@ -3350,19 +3486,12 @@ document.addEventListener('click', (ev) => {
 
     case 'pick-into-routine': {
       const r = state.routines.find((x) => x.id === btn.dataset.ctx);
-      r.items.push({ name: btn.dataset.name, type: btn.dataset.type });
+      r.items.push({ name: btn.dataset.name, type: btn.dataset.type, sets: [{}] });
       save();
       editRoutine(r.id);
       break;
     }
 
-    case 'routine-remove-item': {
-      const r = state.routines.find((x) => x.id === id);
-      r.items.splice(Number(btn.dataset.index), 1);
-      save();
-      editRoutine(r.id);
-      break;
-    }
 
     case 'routine-save': {
       const r = state.routines.find((x) => x.id === id);
@@ -3487,6 +3616,36 @@ document.addEventListener('click', (ev) => {
       const [moved] = state.active.entries.splice(at, 1);
       state.active.entries.splice(to, 0, moved);
       save();
+      render();
+      break;
+    }
+
+    /* A note on one exercise, rather than on the whole session. A sheet and
+       not a prompt() because an imported note is several lines of cues, and a
+       browser prompt shows those as one unreadable run. */
+    case 'entry-note': {
+      const entry = state.active && state.active.entries.find((e) => e.id === id);
+      if (!entry) return;
+      openSheet(`Notes — ${entry.name}`, `
+        <p class="small muted" style="margin-top:0">Form cues, a setup reminder,
+          how it felt. Kept with the exercise, so it's here next time too if you
+          save this as a routine.</p>
+        <textarea class="text" id="entry-note-box" rows="6" spellcheck="true"
+                  placeholder="Elbows tucked. Pause at the bottom.">${esc(entry.note || '')}</textarea>
+        <button class="btn block" data-action="entry-note-save" data-id="${entry.id}"
+                style="margin-top:10px">Save note</button>`);
+      break;
+    }
+
+    case 'entry-note-save': {
+      const entry = state.active && state.active.entries.find((e) => e.id === id);
+      const box = $('#entry-note-box');
+      if (!entry || !box) return;
+      const note = box.value.trim();
+      if (note) entry.note = note;
+      else delete entry.note;
+      save();
+      closeSheet();
       render();
       break;
     }
@@ -3897,22 +4056,60 @@ document.addEventListener('input', (ev) => {
     return;
   }
 
-  /* Renaming an exercise inside a saved routine. A blank box isn't persisted,
-     so clearing the field to retype can't wipe the name. */
-  if (el.dataset.editItem !== undefined) {
-    const r = state.routines.find((x) => x.id === el.dataset.rid);
-    const item = r && r.items[Number(el.dataset.editItem)];
-    const name = el.value.trim();
-    if (item && name) { item.name = name; save(); }
-    return;
-  }
+  /* Editing an exercise, in a saved routine or in the import preview. One
+     branch for both, because two of these drifted apart once already. */
+  if (el.dataset.ifield) {
+    const found = editorItem(el);
+    if (!found) return;
+    const { item, persist } = found;
+    const f = el.dataset.ifield;
 
-  /* Same, for an exercise in the paste-import preview. */
-  if (el.dataset.pitem !== undefined && pendingImport) {
-    const routine = pendingImport.routines[Number(el.dataset.pr)];
-    const item = routine && routine.items[Number(el.dataset.pitem)];
-    const name = el.value.trim();
-    if (item && name) item.name = name;
+    /* A blank box isn't persisted, so clearing the field to retype can't wipe
+       the name. */
+    if (f === 'name') {
+      const name = el.value.trim();
+      if (name) { item.name = name; persist(); }
+      return;
+    }
+
+    if (f === 'note') {
+      const note = el.value.trim();
+      if (note) item.note = note;
+      else delete item.note;
+      persist();
+      return;
+    }
+
+    /* Changing how an exercise is recorded invalidates its targets — a
+       weight/reps target means nothing once it's a timed hold — and changes
+       which fields belong on screen, so this one does redraw. */
+    if (f === 'type') {
+      if (item.type === el.value) return;
+      item.type = EXERCISE_TYPES.includes(el.value) ? el.value : 'lifting';
+      item.sets = [{}];
+      persist();
+      redrawEditor(el);
+      return;
+    }
+
+    /* Everything else is a target: read the whole row, because sets and reps
+       only mean anything together. Nothing re-renders, so what was typed stays
+       on screen — "8/8/6" is stored as three sets and comes back as typed. */
+    const row = el.closest('[data-item-row]');
+    if (!row) return;
+    const val = (name) => {
+      const box = row.querySelector(`[data-ifield="${name}"]`);
+      return box ? box.value : '';
+    };
+    const count = val('sets') || (item.sets && item.sets.length) || 1;
+    item.sets = buildTargetSets(item.type, count, {
+      reps: val('reps'),
+      weight: val('weight'),
+      seconds: val('seconds'),
+      distance: val('distance'),
+      minutes: val('minutes'),
+    });
+    persist();
     return;
   }
 
@@ -3925,20 +4122,6 @@ document.addEventListener('input', (ev) => {
   if (el.dataset.select === 'exercise') {
     dataExercise = el.value;
     render();
-    return;
-  }
-
-  /* Changing how an exercise is recorded invalidates its target sets — a
-     weight/reps target means nothing once it's a timed hold. */
-  if (el.dataset.itemType !== undefined) {
-    const r = state.routines.find((x) => x.id === el.dataset.rid);
-    const item = r && r.items[Number(el.dataset.itemType)];
-    if (item && item.type !== el.value) {
-      item.type = el.value;
-      item.sets = [{}];
-      save();
-      editRoutine(r.id);
-    }
     return;
   }
 

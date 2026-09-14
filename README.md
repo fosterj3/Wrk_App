@@ -14,7 +14,8 @@ installed copy, so only the product name changed.
 
 - **Log workouts** — weight × reps for lifting, distance and time for cardio, a held time for planks, or just a duration for yoga and pilates. Tick sets off as you go.
 - **Build me a plan** — five questions (goal, days, kinds of training, equipment, experience) and Cadence writes you a real starting program, with notes on how to run it. Two to seven days, and tick as many kinds as you like — the week gets split between lifting, cardio and yoga/pilates.
-- **Paste from your notes** — paste a workout or a whole program straight out of Notes and it becomes routines, with sets, reps and weights filled in. It shows you what it understood before saving anything.
+- **Paste from your notes** — paste a workout or a whole program straight out of Notes and it becomes routines, with sets, reps and weights filled in. Numbered exercises with the sets on the next line and bulleted form cues underneath work too — the cues become notes. It shows you what it understood before saving anything, and lets you fix the name, sets, reps and notes there.
+- **Notes on an exercise** — form cues, a setup reminder, how it felt. They follow the exercise into the workout, out to the CSV, and into what you share.
 - **Routines** — save a workout as a template ("Push Day A") and load it instead of retyping it every session.
 - **Last time you did this** — every exercise shows what you did last session, with a Repeat button to copy those numbers in.
 - **Personal records** — beat your best estimated 1RM on a lift and the app says so, once per exercise per workout.
@@ -155,8 +156,26 @@ Routines tab → **Paste from notes**. It reads the common ways people write wor
 | `RDL 3 x 8-10 @ 135` | 3 sets, 8–10 reps, 135 |
 | `Squats 12/10/8 @ 185` | three sets: 12, 10 then 8 reps |
 | `Bench Press` / `135 x 5` / `185 x 3` | one exercise with two sets at those weights |
+| `Band Squat` / `4 × 5` | 4 sets of 5 — see below |
 | `Run 3.1 mi 28 min` | cardio: 3.1 miles in 28 minutes |
 | `5k in 28 min` | cardio: 5km in 28 minutes |
+
+It also reads the way programs are usually written out in full: a numbered exercise, the sets on
+the line below it, and bulleted form cues underneath that.
+
+```
+Strength
+1. EZbar Band Squat
+4 × 5
+
+* Stand on the middle of the band.
+* Keep knees tracking over toes.
+```
+
+The cues become **notes on that exercise** rather than exercises of their own. `Strength` and
+`Cardio` label a part of one session, so they don't split it in two. Labelled preamble
+(`Equipment:`, `Goal:`, `Duration:`) is skipped and listed back to you, while note-ish labels
+(`Notes:`, `Back-friendly alternative:`) are kept against the exercise above them.
 
 Headings like `Push Day A`, `Day 1`, or `Monday` split the text into separate routines.
 Shorthand is matched against the built-in exercise list, so `bench`, `OHP`, `RDL` and `pullups`
@@ -167,6 +186,20 @@ so nothing disappears without you seeing it. Nothing is saved until you press **
 
 Weights are imported as written — if your notes are in kg and the app is set to lb, it says so
 rather than converting.
+
+### `4 × 5` means two different things
+
+Under a bare exercise name, `4 × 5` is four sets of five. But `185 x 5` on the same line of the
+same file is one set of five at 185lb. The parser can't have one rule, so it uses three, in order:
+
+1. A weight of its own on the line settles it — in `3 x 8 135lb` the 135 is the load, so the 3 is
+   a set count.
+2. A unit stuck to the first number makes that number the load — `8kg x 5`.
+3. Otherwise the first number decides: **12 or under is a set count**, more than that is a weight.
+   Nobody does 185 sets, and nobody benches 4lb.
+
+Rule 3 is a guess, and `8 x 10` is genuinely ambiguous. That's the reason the preview lets you
+change the set count before saving rather than only the name.
 
 ## The calendar
 
@@ -842,18 +875,49 @@ The paste importer reads `Plank 3x45s`, `Side plank 2 x 30 sec` and `Wall sit 60
 
 ## Editing what the parser guessed
 
-Imports are a guess, so both the preview and the saved routine let you fix them.
+Imports are a guess, so both the preview and the saved routine let you fix them — with the **same
+editor**, deliberately. They used to be two, and they drifted: the preview let you rename an
+exercise but not say how many sets it had, which made importing a written program a dead end. You
+could see the wrong numbers and not touch them.
 
-In the **paste preview**, every exercise name is an editable field — correct `Incline DB Press` to
-whatever you call it before anything is saved. In the **routine editor**, each exercise has both an
-editable name and a dropdown for how it's recorded (weight & reps / held time / distance & time),
-because the parser can type an exercise wrongly and that used to be unfixable without deleting it.
+Every exercise, in both places, gives you:
+
+| Field | Notes |
+| --- | --- |
+| Name | Free text |
+| How it's recorded | Weight & reps / held time / distance & time / duration only |
+| Sets | Capped at 30, so a stray keystroke can't add 900 |
+| Reps, weight | `8`, or `8/8/6` to keep a pyramid |
+| Seconds / distance / minutes | Whichever the type calls for |
+| Notes | Free text, see below |
+
+Reps and weight take a **slash list** because a routine isn't always uniform. `8/8/6` over three
+sets is what it says; over four it's `8, 8, 6, 6` — a short list repeats its last value, which is
+what someone dropping reps means. Type one number and every set gets it.
 
 Changing how an exercise is recorded clears its target sets — a weight-and-reps target is
 meaningless once it's a timed hold, and keeping it would show nonsense in the routine summary.
 
 Clearing a name field doesn't erase the name; the blank simply isn't saved, so you can select-all
 and retype without losing it if you change your mind.
+
+## Notes on an exercise
+
+Separate from the note on a whole workout. A note belongs to the exercise and follows it around:
+
+- The paste parser writes them from bulleted form cues
+- The routine editor edits them
+- Starting a workout from that routine brings them along, shown above the sets
+- **Note** / **Edit note** on any exercise mid-workout, in a sheet rather than a `prompt()` — an
+  imported note is several lines of cues and a browser prompt runs them together
+- **Save as routine** carries them back out of the workout
+- The CSV has a `Note` column; it repeats down the exercise's rows, and the importer takes the
+  first non-empty one
+- Sharing a routine as text writes them as `- Note: ...` lines
+
+That last one is why the label is there rather than a bare bullet. A bare bullet only comes back as
+a note if it happens to read like a sentence — `Band only` doesn't, and would return as an
+exercise. The label makes the round trip reliable regardless of what the note says.
 
 ## Exporting
 
@@ -866,7 +930,7 @@ and downloaded if sharing isn't available:
 | `.csv` | Reading, sending — and importing back. One row per set, opens in any spreadsheet. |
 
 The CSV has columns `Date, Time, Workout, Exercise, Type, Set, Weight, Reps, Distance, Minutes,
-Seconds` and is written oldest-first with a UTF-8 BOM, so Excel opens it correctly instead of
+Seconds, Note` and is written oldest-first with a UTF-8 BOM, so Excel opens it correctly instead of
 mangling non-ASCII exercise names.
 
 ### Importing a CSV back in
@@ -971,11 +1035,16 @@ break quietly — the `135 x 5` per-set misread, `5k in 28 min` producing an exe
 the bodyweight plan collapsing to one exercise a day, the `0, 1, 1` axis. When you fix a bug in
 that layer, add the case that would have caught it.
 
-Two things are pinned there deliberately as **known limitations**, so they stay visible rather than
-being rediscovered: converting units there-and-back drifts by up to 0.1 (weights are stored to one
-decimal), and the name matcher resolves `Copenhagen Plank` to `Plank` — the same rule that usefully
-resolves `Barbell Bench Press heavy`. The paste preview shows the resolved name before saving, and
-Settings → Exercise names can split it afterwards.
+One thing is pinned there deliberately as a **known limitation**, so it stays visible rather than
+being rediscovered: converting units there-and-back drifts by up to 0.1, because weights are stored
+to one decimal.
+
+A second one has since been fixed. The name matcher used to resolve `Copenhagen Plank` to `Plank`
+and `Forearm Plank` to `Plank`, silently renaming the exercise and merging its history with a
+different movement. It still matches loosely, but only to borrow the **type** — the words you wrote
+survive. That also exposed a bug the renaming had been hiding for months: `Plank 3x45s` reads the
+45 and leaves the `s` stranded, so the name was `Plank s` all along, and nobody could see it
+because the library was overwriting the name anyway.
 
 `util.js` and `library.js` exist so this is possible at all: the pure logic used to depend on
 globals defined inside `app.js`, which meant it could only be exercised by booting the whole UI.

@@ -105,6 +105,16 @@ describe('surviving bad stored data', () => {
       entries: [{ name: 'X', type: 'bogus' }] }] }, D).sessions[0].entries[0].type, 'lifting');
   eq('a weigh-in with no value is dropped',
     normalizeState({ weights: [{ date: '2026-01-01', value: 0 }, { date: '2026-01-02', value: 180 }] }, D).weights.length, 1);
+
+  /* A note is free text that gets rendered, so it has to be a string whatever
+     the stored file says. An object here would reach the page as
+     "[object Object]". */
+  eq('a note survives a reload',
+    normalizeState({ routines: [{ name: 'R', items: [{ name: 'Squat', note: 'knees out' }] }] }, D)
+      .routines[0].items[0].note, 'knees out');
+  eq('a note that is not text is coerced',
+    typeof normalizeState({ routines: [{ name: 'R', items: [{ name: 'Squat', note: { a: 1 } }] }] }, D)
+      .routines[0].items[0].note, 'string');
   eq('good data is left alone',
     normalizeState({ sessions: [], routines: [], weights: [], settings: { units: 'kg' } }, D).settings.units, 'kg');
 });
@@ -186,16 +196,28 @@ describe('paste parser', () => {
   eq('shorthand resolves via the library', one('bench 3x8').items[0].name, 'Barbell Bench Press');
   eq('unknown names are kept as custom', one('Zercher Carry 3x8').items[0].custom, true);
 
-  /* Known limitation, pinned here so it stays visible: the matcher accepts a
-     name that *contains* a library name, which is what makes "Barbell Bench
-     Press (heavy)" resolve — but it also swallows "Copenhagen Plank" into
-     "Plank", a different exercise. The paste preview shows the resolved name
-     and lets you edit it, and Settings > Exercise names can split it after the
-     fact. Change this expectation if the matcher is ever tightened. */
-  eq('a qualifier before a library name still matches (by design)',
-    one('Barbell Bench Press heavy 3x5').items[0].name, 'Barbell Bench Press');
-  eq('known over-match: Copenhagen Plank resolves to Plank',
-    one('Copenhagen Plank 3x30s').items[0].name, 'Plank');
+  /* The matcher still accepts a name that *contains* a library name, but only
+     to borrow the type from it. It used to adopt the library's name too, which
+     quietly renamed the exercise: "Copenhagen Plank" became "Plank" and shared
+     its history with a different movement. Now the words you wrote survive and
+     the library only settles how the exercise is recorded. */
+  eq('a qualified name is kept, not replaced by the library one',
+    one('Copenhagen Plank 3x30s').items[0].name, 'Copenhagen Plank');
+  eq('...but the library still supplies the type',
+    one('Copenhagen Plank 3x30s').items[0].type, 'timed');
+  /* Capitals the user typed are left as typed, so this keeps its lowercase h. */
+  eq('a qualifier before a library name is kept too',
+    one('Barbell Bench Press heavy 3x5').items[0].name, 'Barbell Bench Press heavy');
+  eq('an exact library name is still canonicalised',
+    one('bench 3x8').items[0].name, 'Barbell Bench Press');
+
+  /* Regression: "Plank 3x45s" reads the 45 and leaves the "s" behind, so the
+     name was "Plank s" all along — masked until the library stopped renaming
+     it. */
+  eq('a stranded unit letter is not part of the name',
+    one('Plank 3x45s').items[0].name, 'Plank');
+  eq('a distance word in a name survives when nothing consumed it',
+    one('Mile Repeats 4x1').items[0].name, 'Mile Repeats');
 
   eq('cardio distance and duration',
     one('Run 3.1 mi 28 min').items[0].sets[0], { distance: 3.1, minutes: 28 });
@@ -215,6 +237,135 @@ describe('paste parser', () => {
   eq('headings split into routines', twoDay.routines.map((r) => r.name), ['Day 1', 'Day 2']);
 });
 
+/* ------------------------------------------------- programs kept in a notes app
+
+   The shape a real user pasted in: a title, a labelled preamble, section
+   headings, numbered exercises with the sets on the *next* line, and a block of
+   bulleted coaching cues under each one. It imported as forty exercises, most
+   of them sentences like "Keep knees tracking over toes".                     */
+
+describe('pasting a program written out in full', () => {
+  const PROGRAM = [
+    'Full Body – Monday Strength (Home)',
+    'Equipment: resistance bands, EZbar, handles, door anchor',
+    'Goal: Full-body strength',
+    'Duration: ~45–60 minutes',
+    'Strength',
+    '1. EZbar Band Squat',
+    '4 × 5',
+    '',
+    '* Stand on the middle of the band.',
+    '* Keep knees tracking over toes.',
+    '',
+    '2. Band Lateral Raise',
+    '3 × 8',
+    '',
+    '* Stand on band.',
+    '* Use lighter resistance if needed.',
+    '',
+    'Back-friendly alternative: Banded glute bridge – 3 × 10–12.',
+    '3. Forearm Plank',
+    '3 × 60 sec',
+    '',
+    '* Elbows under shoulders.',
+    '',
+    'Cardio',
+    '10 minutes',
+    '',
+    '* Brisk outdoor walk, OR',
+    '* March in place.',
+    '',
+    'Reminder: Start lighter than you think.',
+  ].join('\n');
+
+  const out = parseWorkoutText(PROGRAM);
+  const r = out.routines[0];
+
+  eq('the whole thing is one workout, not one per section', out.routines.length, 1);
+  eq('the title line names it', r.name, 'Full Body – Monday Strength (Home)');
+
+  /* The headline number. Forty before, four now. */
+  eq('cues do not become exercises', r.items.length, 4);
+  eq('the exercises are the exercises', r.items.map((i) => i.name),
+    ['EZbar Band Squat', 'Band Lateral Raise', 'Forearm Plank', 'Cardio']);
+
+  /* "4 × 5" on its own line under a bare name means four sets of five. Read as
+     weight × reps it gave one set of 5 reps at 4lb. */
+  eq('sets on the following line are sets, not weight', r.items[0].sets.length, 4);
+  eq('...with the reps on every one', r.items[0].sets, [
+    { reps: 5 }, { reps: 5 }, { reps: 5 }, { reps: 5 },
+  ]);
+
+  eq('a hold keeps its set count too', r.items[2].sets,
+    [{ seconds: 60 }, { seconds: 60 }, { seconds: 60 }]);
+  eq('a qualified hold is still typed as a hold', r.items[2].type, 'timed');
+
+  eq('bulleted cues land on the exercise above them',
+    r.items[0].note, 'Stand on the middle of the band.\nKeep knees tracking over toes.');
+
+  /* A labelled alternative belongs to the lift it replaces. */
+  check('a labelled alternative is kept as a note',
+    /Banded glute bridge/.test(r.items[1].note || ''), r.items[1].note);
+
+  /* A section heading has to break the chain: without that, "10 minutes" read
+     as another set of the plank above it. */
+  eq('a section heading starts a new exercise', r.items[3].type, 'cardio');
+  eq('...and carries the duration', r.items[3].sets[0], { minutes: 10 });
+
+  eq('preamble is reported as skipped, not silently dropped', out.unparsed, [
+    'Equipment: resistance bands, EZbar, handles, door anchor',
+    'Goal: Full-body strength',
+    'Duration: ~45–60 minutes',
+    'Reminder: Start lighter than you think.',
+  ]);
+});
+
+describe('telling a cue from an exercise name', () => {
+  /* The discriminator is shape, not vocabulary: a sentence ends in punctuation
+     and runs long, a name is short and capitalised. Getting this wrong in
+     either direction is bad — invented exercises one way, lost work the other. */
+  const cue = (s) => looksLikeCue(s);
+
+  check('a sentence is a cue', cue('Keep hips level.'));
+  check('a long uncapitalised line is a cue', cue('brace your abs and squeeze the glutes'));
+  check('a dangling conjunction is a cue', cue('Brisk outdoor walk, OR'));
+
+  check('a bare exercise name is not', !cue('Band Chest Press'));
+  check('a long capitalised name is not', !cue('Single Arm Dumbbell Overhead Press'));
+  check('a library name with a full stop is not', !cue('Squat.'));
+  check('anything with a number is not', !cue('Stand on 1 leg'));
+
+  /* Bulleted lists of bare exercise names are the common case this must not
+     break: every line is numberless and bulleted, and every one is an
+     exercise. */
+  const bulleted = parseWorkoutText('Push Day\n- Bench Press\n- Overhead Press\n- Dips');
+  eq('a bulleted list of names stays a list of exercises',
+    bulleted.routines[0].items.map((i) => i.name),
+    ['Barbell Bench Press', 'Overhead Press', 'Dips']);
+});
+
+describe('set lines under an exercise', () => {
+  const sets = (text) => parseWorkoutText(text).routines[0].items[0].sets;
+
+  /* Both of these are "name, then numbers on the next line" and they mean
+     opposite things. The first number decides: nobody does 185 sets. */
+  eq('a big first number is a weight', sets('Bench Press\n185 x 5'), [{ reps: 5, weight: 185 }]);
+  eq('a small first number is a set count', sets('Band Squat\n4 x 5'),
+    [{ reps: 5 }, { reps: 5 }, { reps: 5 }, { reps: 5 }]);
+  /* An explicit unit settles it outright, whatever the number. */
+  eq('a stated unit means weight', sets('Bench Press\n8 kg x 5'), [{ reps: 5, weight: 8 }]);
+
+  /* A weight of its own leaves nothing to guess about: the other number is the
+     set count, whatever its size. */
+  eq('a separate weight makes the first number a set count',
+    sets('Barbell Row\n3 x 8 135lb'),
+    [{ reps: 8, weight: 135 }, { reps: 8, weight: 135 }, { reps: 8, weight: 135 }]);
+
+  /* Several logged sets in a row still stack up as they always did. */
+  eq('logged sets accumulate', sets('Bench Press\n185 x 5\n195 x 3'),
+    [{ reps: 5, weight: 185 }, { reps: 3, weight: 195 }]);
+});
+
 /* --------------------------------------------------------------- csv round trip */
 
 describe('csv export / import', () => {
@@ -229,6 +380,30 @@ describe('csv export / import', () => {
 
   const csv = buildCsv(sessions, 'lb');
   check('starts with a BOM so Excel reads UTF-8', csv.charCodeAt(0) === 0xFEFF);
+
+  /* Notes are per exercise but the file is per set, so the note repeats down
+     the rows. A newline inside it has to survive the quoting, or the file
+     breaks at that row and takes the rest of the export with it. */
+  const withNotes = buildCsv([{
+    id: 's3', name: 'Noted', date: new Date(2026, 4, 8, 9, 0).toISOString(), durationMs: 0,
+    entries: [{ id: 'f', name: 'Band Squat', type: 'lifting',
+      note: 'Stand on the band.\nKnees out', sets: [{ weight: '', reps: '5' }, { weight: '', reps: '5' }] }],
+  }], 'lb');
+  eq('a multi-line note round-trips through the csv',
+    csvToSessions(withNotes).sessions[0].entries[0].note, 'Stand on the band.\nKnees out');
+  eq('...and does not split the row', csvToSessions(withNotes).sessions[0].entries[0].sets.length, 2);
+  /* An export from before notes existed has no Note column at all. The
+     importer maps columns by name, so a missing one has to be a non-event
+     rather than an off-by-one down the rest of the row. */
+  const oldFormat = csv.split('\r\n')
+    .map((line) => line.replace(/,[^,]*$/, ''))    /* drop the last column */
+    .join('\r\n');
+  const oldBack = csvToSessions(oldFormat);
+  eq('a csv with no note column still imports', oldBack.sessions.length, 1);
+  eq('...with its sets unshifted',
+    oldBack.sessions[0].entries.map((e) => `${e.name}:${e.type}:${e.sets.length}`),
+    ['Barbell Bench Press:lifting:2', 'Plank:timed:1', 'Run:cardio:1']);
+  eq('...and no note', oldBack.sessions[0].entries[0].note, undefined);
 
   const back = csvToSessions(csv);
   eq('one session comes back', back.sessions.length, 1);
@@ -569,6 +744,73 @@ describe('sharing a routine', () => {
     withLink.unparsed.some((l) => /fosterj3/.test(l)), withLink.unparsed.join(' | '));
   eq('a bare domain is skipped too',
     parseWorkoutText('Squat 3x5\ncadence.app').routines[0].items.map((i) => i.name), ['Barbell Back Squat']);
+
+  /* Notes travel with the routine. Written as "- Note: ..." rather than a bare
+     bullet because a bare bullet only returns as a note if it happens to read
+     like a sentence — "Band only" would come back as an exercise. */
+  const noted = { name: 'Band Day', items: [
+    { name: 'Band Squat', type: 'lifting', sets: [{ reps: 5 }], note: 'Stand on the band.\nBand only' },
+  ] };
+  const notedText = routineToText(noted, 'lb');
+  check('a note is written out', /Note: Band only/.test(notedText), notedText);
+  eq('a note comes back attached to its exercise',
+    parseWorkoutText(notedText).routines[0].items[0].note,
+    'Stand on the band.\nBand only');
+  eq('...and does not become an exercise of its own',
+    parseWorkoutText(notedText).routines[0].items.length, 1);
+});
+
+/* ------------------------------------------------------ editing an exercise */
+
+describe('sets and reps as editable fields', () => {
+  /* The editor says "4 sets of 8"; storage holds four sets. These two have to
+     agree, because collapse(spread(x)) runs on every repaint — if they
+     disagree the number changes while you look at it. */
+  eq('one value fills every set', spreadValues('8', 3), [8, 8, 8]);
+  eq('a list is taken as written', spreadValues('8/8/6', 3), [8, 8, 6]);
+  eq('a short list repeats its last value', spreadValues('8/6', 4), [8, 6, 6, 6]);
+  eq('a long list is truncated', spreadValues('8/8/6/6', 2), [8, 8]);
+  eq('blank stays blank', spreadValues('', 2), [null, null]);
+  eq('nonsense is not a zero', spreadValues('abc', 2), [null, null]);
+
+  eq('uniform sets collapse to one number', collapseValues([8, 8, 8]), '8');
+  eq('a pyramid keeps its shape', collapseValues([8, 8, 6]), '8/8/6');
+  eq('nothing at all is empty', collapseValues([]), '');
+
+  const roundTrip = (text, n) => collapseValues(spreadValues(text, n));
+  eq('a single value survives the round trip', roundTrip('8', 4), '8');
+  eq('a pyramid survives the round trip', roundTrip('8/8/6', 3), '8/8/6');
+
+  /* The editor writes the target sets, so the shape has to match what the
+     workout screen and the CSV already read. */
+  eq('a lift builds weight and reps', buildTargetSets('lifting', 3, { reps: '8', weight: '185' }),
+    [{ reps: 8, weight: 185 }, { reps: 8, weight: 185 }, { reps: 8, weight: 185 }]);
+  eq('a pyramid builds per-set reps', buildTargetSets('lifting', 3, { reps: '8/8/6', weight: '185' }),
+    [{ reps: 8, weight: 185 }, { reps: 8, weight: 185 }, { reps: 6, weight: 185 }]);
+  eq('a hold builds seconds', buildTargetSets('timed', 2, { seconds: '60' }),
+    [{ seconds: 60 }, { seconds: 60 }]);
+  /* One duration for the exercise: nobody logs a yoga class as three sets. */
+  eq('a class is one duration', buildTargetSets('practice', 1, { minutes: '45' }), [{ minutes: 45 }]);
+  eq('cardio takes distance and duration', buildTargetSets('cardio', 1, { distance: '3.1', minutes: '28' }),
+    [{ distance: 3.1, minutes: 28 }]);
+  eq('a blank field is left out rather than stored as zero',
+    buildTargetSets('lifting', 1, { reps: '8', weight: '' }), [{ reps: 8 }]);
+
+  eq('at least one set, always', buildTargetSets('lifting', 0, { reps: '8' }).length, 1);
+  eq('a fat-fingered set count is capped',
+    buildTargetSets('lifting', 9000, { reps: '8' }).length, MAX_TARGET_SETS);
+
+  /* Reading an exercise back out is what fills the boxes on every repaint. */
+  eq('targets read back out of an exercise',
+    itemTargets({ type: 'lifting', sets: [{ reps: 8, weight: 185 }, { reps: 6, weight: 185 }] }),
+    { sets: 2, reps: '8/6', weight: '185', seconds: '', distance: '', minutes: '' });
+  eq('an exercise with no sets still shows one',
+    itemTargets({ type: 'lifting' }).sets, 1);
+
+  /* The full loop: what the editor shows, edited, stored, and shown again. */
+  const item = { name: 'Band Squat', type: 'lifting', sets: buildTargetSets('lifting', 4, { reps: '5' }) };
+  eq('four sets of five, as typed', itemTargets(item),
+    { sets: 4, reps: '5', weight: '', seconds: '', distance: '', minutes: '' });
 });
 
 /* Regression: setFrom() had no practice branch, so a practice line fell into

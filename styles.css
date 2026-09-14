@@ -590,6 +590,32 @@ select.text.slim{width:auto;flex:1;min-width:150px;padding:8px 10px;font-size:13
 .item-edit-row select.text.slim{flex:0 0 auto;min-width:0;width:auto;font-size:12px;padding:6px 8px}
 .item-edit-row .grow{text-align:right;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
+/* Sets and reps side by side. auto-fit rather than a fixed column count so a
+   lift (sets/reps/weight) and a class (minutes alone) both read properly, and
+   so two fields don't end up 40px wide on a small phone. */
+.tfields{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(88px,1fr));
+  gap:8px;margin-top:10px;
+}
+.tfield{display:block;min-width:0}
+.tfield > span{
+  display:block;font-size:11px;letter-spacing:.04em;text-transform:uppercase;
+  color:var(--muted);margin-bottom:4px;
+}
+.tfield input.text,.tfield textarea.text{background:var(--surface);margin:0}
+.note-field{margin-top:10px}
+.note-field textarea.text{min-height:52px;font-size:14px;line-height:1.45}
+
+.note-dot{opacity:.55;font-size:11px}
+
+/* A cue you want to read mid-set, so it keeps the newlines it was written
+   with rather than running the lines together. */
+.ex-note{
+  margin:10px 0 0;padding:8px 10px;border-left:2px solid var(--accent);
+  background:var(--surface-2);border-radius:0 8px 8px 0;
+  font-size:13px;line-height:1.5;color:var(--muted);white-space:pre-wrap;
+}
+
 /* ---------- topbar actions ---------- */
 .topbar-actions{display:flex;align-items:center;gap:8px;flex:0 0 auto}
 .home-btn{

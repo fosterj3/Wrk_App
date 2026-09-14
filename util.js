@@ -109,6 +109,98 @@ function convertWeight(value, from, to) {
 /* --------------------------------------------------- sharing a routine */
 
 
+/* ------------------------------------------------- editing an exercise target
+
+   A routine's exercise holds an array of target sets, which is the right shape
+   for the workout screen and the wrong one for editing: what people want to
+   say is "four sets of eight". These two functions are the translation, and
+   they have to agree — collapse(spread(x)) is what the editor does on every
+   repaint, so a disagreement shows up as a value that changes when you look
+   at it.                                                                    */
+
+/**
+ * Spread "8", or "8/8/6", across `count` sets.
+ *
+ * Fewer values than sets repeats the last one — "8/6" over four sets is
+ * 8, 6, 6, 6, which is what someone dropping reps means. Extra values are
+ * dropped. A blank leaves the set blank rather than writing a zero.
+ */
+function spreadValues(text, count) {
+  const parts = String(text == null ? '' : text)
+    .split('/').map((s) => s.trim()).filter((s) => s !== '');
+  const out = [];
+  for (let i = 0; i < Math.max(0, count); i++) {
+    const raw = parts.length ? parts[Math.min(i, parts.length - 1)] : '';
+    const n = Number(raw);
+    out.push(raw === '' || isNaN(n) ? null : n);
+  }
+  return out;
+}
+
+/** The inverse: one number when every set agrees, else "8/8/6". */
+function collapseValues(values) {
+  const clean = (values || []).map((v) => (v == null || v === '' ? '' : String(v)));
+  if (!clean.length) return '';
+  if (clean.every((v) => v === clean[0])) return clean[0];
+  return clean.join('/');
+}
+
+/**
+ * Build an exercise's target sets from what the editor is showing.
+ *
+ * @param {string} type    lifting | timed | cardio | practice
+ * @param {number} count   how many sets
+ * @param {object} fields  { reps, weight, seconds, distance, minutes } as typed
+ */
+function buildTargetSets(type, count, fields) {
+  const f = fields || {};
+  const n = Math.max(1, Math.min(MAX_TARGET_SETS, Math.round(Number(count) || 1)));
+  const reps = spreadValues(f.reps, n);
+  const weight = spreadValues(f.weight, n);
+  const seconds = spreadValues(f.seconds, n);
+  const distance = spreadValues(f.distance, n);
+  /* One duration for the whole exercise: nobody logs a 45-minute yoga class as
+     three sets of fifteen. */
+  const mins = f.minutes === '' || f.minutes == null ? null : Number(f.minutes);
+  const minutes = mins == null || isNaN(mins) ? null : mins;
+
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const s = {};
+    if (type === 'timed') {
+      if (seconds[i] != null) s.seconds = seconds[i];
+    } else if (type === 'cardio') {
+      if (distance[i] != null) s.distance = distance[i];
+      if (minutes != null) s.minutes = minutes;
+    } else if (type === 'practice') {
+      if (minutes != null) s.minutes = minutes;
+    } else {
+      if (reps[i] != null) s.reps = reps[i];
+      if (weight[i] != null) s.weight = weight[i];
+    }
+    out.push(s);
+  }
+  return out;
+}
+
+/** The cap on sets one exercise can hold, so a stray keystroke can't add 900. */
+const MAX_TARGET_SETS = 30;
+
+/** Read an exercise's target sets back out as editor field values. */
+function itemTargets(item) {
+  const sets = (item && Array.isArray(item.sets) ? item.sets : []);
+  const pick = (key) => collapseValues(sets.map((s) => (s ? s[key] : null)));
+  const first = sets.find((s) => s && s.minutes != null && s.minutes !== '');
+  return {
+    sets: Math.max(1, sets.length),
+    reps: pick('reps'),
+    weight: pick('weight'),
+    seconds: pick('seconds'),
+    distance: pick('distance'),
+    minutes: first ? Number(first.minutes) : '',
+  };
+}
+
 /**
  * A routine as the plain text it probably started life as.
  *
@@ -117,38 +209,52 @@ function convertWeight(value, from, to) {
  */
 function routineToText(routine, units) {
   const lines = [String(routine.name || 'Routine')];
+
+  /* Notes go out as "- Note: ..." rather than a bare bullet. A bare bullet
+     reads better but only comes back as a note if it happens to look like a
+     sentence, and "Band only" doesn't — it would return as an exercise. The
+     label is what makes the round trip reliable. */
+  const withNote = (it) => {
+    if (!it.note) return;
+    String(it.note).split('\n').forEach((n) => {
+      const line = n.trim();
+      if (line) lines.push(`- Note: ${line}`);
+    });
+  };
+
   (routine.items || []).forEach((it) => {
     const sets = it.sets || [];
     const first = sets[0] || {};
     const uniform = sets.every((s) => JSON.stringify(s) === JSON.stringify(first));
 
-    if (it.type === 'cardio' || it.type === 'practice') {
-      const bits = [];
-      if (first.distance != null && first.distance !== '') {
-        /* A bare number is not a distance to the parser, so the unit has to be
-           written out or the text will not read back. Falls back to the one
-           implied by the weight units. */
-        const unit = it.distanceUnit || (units === 'kg' ? 'km' : 'mi');
-        bits.push(`${first.distance} ${unit}`);
+    /* One line per exercise, built then pushed, so the note that follows it
+       can't be left behind by an early return. */
+    const exercise = () => {
+      if (it.type === 'cardio' || it.type === 'practice') {
+        const bits = [];
+        if (first.distance != null && first.distance !== '') {
+          /* A bare number is not a distance to the parser, so the unit has to
+             be written out or the text will not read back. Falls back to the
+             one implied by the weight units. */
+          const unit = it.distanceUnit || (units === 'kg' ? 'km' : 'mi');
+          bits.push(`${first.distance} ${unit}`);
+        }
+        if (first.minutes != null && first.minutes !== '') bits.push(`${Math.round(Number(first.minutes))} min`);
+        return `${it.name}${bits.length ? ` ${bits.join(' ')}` : ''}`;
       }
-      if (first.minutes != null && first.minutes !== '') bits.push(`${Math.round(Number(first.minutes))} min`);
-      lines.push(`${it.name}${bits.length ? ` ${bits.join(' ')}` : ''}`);
-      return;
-    }
-    if (it.type === 'timed') {
-      lines.push(`${it.name}${first.seconds ? ` ${sets.length}x${first.seconds}s` : ''}`);
-      return;
-    }
-    if (!sets.length || (first.reps == null || first.reps === '')) {
-      lines.push(it.name);
-      return;
-    }
-    if (uniform) {
-      const at = (first.weight != null && first.weight !== '') ? ` @ ${first.weight}${units || ''}` : '';
-      lines.push(`${it.name} ${sets.length}x${first.reps}${at}`);
-      return;
-    }
-    lines.push(`${it.name} ${sets.map((s) => s.reps).join('/')}`);
+      if (it.type === 'timed') {
+        return `${it.name}${first.seconds ? ` ${sets.length}x${first.seconds}s` : ''}`;
+      }
+      if (!sets.length || first.reps == null || first.reps === '') return it.name;
+      if (uniform) {
+        const at = (first.weight != null && first.weight !== '') ? ` @ ${first.weight}${units || ''}` : '';
+        return `${it.name} ${sets.length}x${first.reps}${at}`;
+      }
+      return `${it.name} ${sets.map((s) => s.reps).join('/')}`;
+    };
+
+    lines.push(exercise());
+    withNote(it);
   });
   return lines.join('\n');
 }
@@ -209,6 +315,11 @@ function normalizeState(parsed, defaults) {
     .filter((s) => s && typeof s === 'object')
     .map((s) => ({ ...s, id: s.id || uid() }));
 
+  /* A note is free text and gets rendered, so it has to be a string however it
+     arrives — an imported object here would reach innerHTML as "[object
+     Object]" at best. */
+  const note = (v) => (v == null || v === '' ? undefined : str(v));
+
   const entries = (v) => arr(v)
     .filter((e) => e && typeof e === 'object' && e.name)
     .map((e) => ({
@@ -216,6 +327,7 @@ function normalizeState(parsed, defaults) {
       id: e.id || uid(),
       name: str(e.name),
       type: EXERCISE_TYPES.includes(e.type) ? e.type : 'lifting',
+      note: note(e.note),
       sets: sets(e.sets),
     }));
 
@@ -237,7 +349,7 @@ function normalizeState(parsed, defaults) {
       name: str(r.name) || 'Routine',
       items: arr(r.items)
         .filter((i) => i && typeof i === 'object' && i.name)
-        .map((i) => ({ ...i, name: str(i.name), sets: arr(i.sets) })),
+        .map((i) => ({ ...i, name: str(i.name), note: note(i.note), sets: arr(i.sets) })),
     }));
 
   const weights = arr(parsed && parsed.weights)

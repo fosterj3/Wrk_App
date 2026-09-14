@@ -112,17 +112,10 @@ const ALIASES = {
   'stairs': 'stair climber',
 };
 
-/* ------------------------------------------------------------ name matching */
+/* ------------------------------------------------------------ name matching
 
-function norm(s) {
-  return String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-}
-
-function singularize(key) {
-  return key.split(' ')
-    .map((w) => (w.length > 3 && w.endsWith('s') && !w.endsWith('ss') ? w.slice(0, -1) : w))
-    .join(' ');
-}
+   norm() and singularize() live in util.js: the app needs them too, to spot
+   that a freshly typed "planks" is the "Plank" already in the log.          */
 
 let libIndexCache = null;
 function libraryIndex() {

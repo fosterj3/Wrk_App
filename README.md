@@ -16,6 +16,7 @@ installed copy, so only the product name changed.
 - **Build me a plan** — five questions (goal, days, kinds of training, equipment, experience) and Cadence writes you a real starting program, with notes on how to run it. Two to seven days, and tick as many kinds as you like — the week gets split between lifting, cardio and yoga/pilates.
 - **Paste from your notes** — paste a workout or a whole program straight out of Notes and it becomes routines, with sets, reps and weights filled in. Numbered exercises with the sets on the next line and bulleted form cues underneath work too — the cues become notes. It shows you what it understood before saving anything, and lets you fix the name, sets, reps and notes there.
 - **Notes on an exercise** — form cues, a setup reminder, how it felt. They follow the exercise into the workout, out to the CSV, and into what you share.
+- **Your exercises stay yours** — anything you invent shows up under *Added by you* in the picker from then on, so the next routine reuses it instead of retyping it. Type a near-match and the app offers the name you already use, so one exercise doesn't end up as two half-histories.
 - **Routines** — save a workout as a template ("Push Day A") and load it instead of retyping it every session.
 - **Last time you did this** — every exercise shows what you did last session, with a Repeat button to copy those numbers in.
 - **Personal records** — beat your best estimated 1RM on a lift and the app says so, once per exercise per workout.
@@ -1069,6 +1070,27 @@ the join key for "last time", personal-record detection and the strength-progres
 silently forks one exercise into two partial histories. Renaming an exercise inside a routine used
 to orphan its logged history the same way; this is the fix. Merging across incompatible types
 (a timed hold into a lifting exercise) is refused rather than corrupting the sets.
+
+### One exercise, one name
+
+Exact-name matching is kept on purpose — the alternative is the app deciding two of your exercises
+are the same one. Three things stop that costing you a history, in the order you meet them:
+
+1. **The picker offers what you already have.** *Added by you* sits above the built-in library,
+   listing every exercise you invented, most-used first. Picking is easier than retyping, and a
+   pick can't be spelled wrong.
+2. **Typing a near-match says so.** `planks` when the log says `Plank` opens *You already have this
+   one*, with **Use Plank** or **No, that's a different exercise**. It only ever offers.
+3. **Settings → Exercise names flags what's already split**, pairing the spellings with a one-tap
+   merge into whichever has the most history.
+
+All three use one key: lowercase, punctuation and spacing removed, trailing plurals stripped. So
+`Pull-Ups`, `pull ups` and `PullUp` are one exercise, and **`Forearm Plank` and `Plank` are not** —
+different movements at different difficulty, whose histories should stay apart. That's the same
+judgement the paste parser now makes when it keeps the name you wrote.
+
+A group whose spellings are recorded as different *types* is shown but not offered: merging a timed
+hold into a lifting exercise would mix sets that aren't the same kind of thing.
 
 ## Removing an exercise mid-workout
 

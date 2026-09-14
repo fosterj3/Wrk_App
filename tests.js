@@ -760,6 +760,42 @@ describe('sharing a routine', () => {
     parseWorkoutText(notedText).routines[0].items.length, 1);
 });
 
+/* --------------------------------------------------- one exercise, one name */
+
+describe('spotting the same exercise written differently', () => {
+  /* Case, punctuation and a trailing plural — the ways the same exercise gets
+     typed twice. Everything that makes the log useful matches on the name, so
+     these are one history split in two. */
+  check('case differs', sameExercise('Plank', 'plank'));
+  check('a trailing plural differs', sameExercise('Plank', 'Planks'));
+  check('punctuation differs', sameExercise('Pull-Up', 'Pull Up'));
+  check('spacing differs', sameExercise('  Pull  Up ', 'pull up'));
+
+  /* Deliberately narrow. These are different movements at different
+     difficulty, and pairing them for a one-tap merge would combine histories
+     that should stay apart. */
+  check('a qualifier makes it a different exercise', !sameExercise('Forearm Plank', 'Plank'));
+  check('...in either direction', !sameExercise('Plank', 'Copenhagen Plank'));
+  check('unrelated names do not match', !sameExercise('Squat', 'Deadlift'));
+  /* "Press" ends in a double s, so singularising must leave it alone. */
+  check('a word ending in ss is not singularised', !sameExercise('Leg Press', 'Leg Pres'));
+  check('two blanks are not a match', !sameExercise('', ''));
+  check('a blank matches nothing', !sameExercise('', 'Plank'));
+
+  /* The grouping keeps input order, which is how the caller knows which
+     spelling to merge into: the list arrives most-used first. */
+  eq('duplicates group together',
+    duplicateNameGroups(['Plank', 'Squat', 'planks', 'Deadlift']), [['Plank', 'planks']]);
+  eq('a name repeated exactly is not a duplicate group',
+    duplicateNameGroups(['Plank', 'Plank']), []);
+  eq('nothing in common is no groups',
+    duplicateNameGroups(['Squat', 'Bench', 'Row']), []);
+  eq('three spellings make one group',
+    duplicateNameGroups(['Pull Up', 'pull-ups', 'PULLUP'])[0].length, 3);
+  eq('an empty list is fine', duplicateNameGroups([]), []);
+  eq('a null list is fine', duplicateNameGroups(null), []);
+});
+
 /* ------------------------------------------------------ editing an exercise */
 
 describe('sets and reps as editable fields', () => {

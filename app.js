@@ -2800,8 +2800,49 @@ function renameExerciseEverywhere(from, to) {
   return touched;
 }
 
+/* Held between render and click, so the merge button can name a group without
+   round-tripping arbitrary exercise names through a data attribute. */
+let dupeGroups = [];
+
+/**
+ * Names in the log that differ only by case, punctuation or a trailing plural.
+ *
+ * exerciseNameIndex() comes back most-used first and the grouping keeps that
+ * order, so the first name in a group is the one to merge the others into —
+ * the spelling already attached to the most history.
+ */
+function duplicateSuggestions() {
+  const rows = exerciseNameIndex();
+  const typeOf = new Map(rows.map((r) => [r.name, r.type]));
+  const useOf = new Map(rows.map((r) => [r.name, r.sessions + r.routines]));
+
+  return duplicateNameGroups(rows.map((r) => r.name)).map((names) => ({
+    names,
+    keep: names[0],
+    /* One logged as a hold and one as a lift can't be combined — their sets
+       aren't the same kind of thing. Shown, but not offered. */
+    mixed: new Set(names.map((n) => typeOf.get(n))).size > 1,
+    uses: names.reduce((n, x) => n + (useOf.get(x) || 0), 0),
+  }));
+}
+
 function openExerciseNames() {
   const rows = exerciseNameIndex();
+  dupeGroups = duplicateSuggestions();
+
+  const dupeCard = (g, i) => `
+    <div class="card dupe">
+      <div class="card-title">${g.names.map((n) => `“${esc(n)}”`).join(' · ')}</div>
+      <div class="card-sub">Spelled ${g.names.length} ways across ${plural(g.uses, 'place')}.
+        ${g.mixed
+          ? 'One is recorded differently from the other, so merging them would mix '
+            + 'incompatible sets. Fix the type in the routine first.'
+          : `Tracked separately today — ${esc(g.keep)} has the most history.`}</div>
+      ${g.mixed ? '' : `
+        <button class="btn secondary" data-action="merge-dupes" data-g="${i}" style="margin-top:10px">
+          Merge into ${esc(g.keep)}
+        </button>`}
+    </div>`;
 
   openSheet('Exercise names', `
     <p class="small muted" style="margin-top:0">
@@ -2809,6 +2850,12 @@ function openExerciseNames() {
       name, so a typo splits one exercise into two histories. Rename one onto another
       to merge them.
     </p>
+
+    ${dupeGroups.length ? `
+      <h3 class="small muted" style="margin:18px 0 8px">THESE LOOK LIKE THE SAME EXERCISE</h3>
+      ${dupeGroups.map(dupeCard).join('')}
+      <h3 class="small muted" style="margin:22px 0 8px">EVERYTHING</h3>` : ''}
+
     ${rows.length ? rows.map((r) => `
       <button class="pick" data-action="rename-exercise" data-name="${esc(r.name)}">
         <div class="grow">
@@ -3122,22 +3169,102 @@ function importCsvFile(text) {
 
 /* --------------------------------------------------------- exercise picker */
 
+/**
+ * Exercises you made up yourself, most-used first.
+ *
+ * Anything not in the built-in library: typed by hand, or read out of a paste.
+ * They used to exist only on the routine that created them, so adding the same
+ * one to a second routine meant retyping it — and a retype that came out even
+ * slightly different started a second history under a second name.
+ */
+function myExercises() {
+  const known = new Set(LIBRARY.map((e) => e.name));
+  return exerciseNameIndex().filter((e) => !known.has(e.name));
+}
+
+/**
+ * Every exercise name the app could reasonably match against — yours first, so
+ * that when a name appears in both, the version you actually use wins.
+ */
+function knownExercises() {
+  const mine = exerciseNameIndex();
+  const seen = new Set(mine.map((e) => e.name));
+  return mine.concat(LIBRARY.filter((e) => !seen.has(e.name)));
+}
+
+/** Put a chosen exercise wherever the picker was opened from. */
+function chooseExercise(pick, contextId, name, type) {
+  if (!name) return;
+  const t = EXERCISE_TYPES.includes(type) ? type : 'lifting';
+
+  if (pick === 'pick-into-routine') {
+    const r = state.routines.find((x) => x.id === contextId);
+    if (!r) return;
+    r.items.push({ name, type: t, sets: [{}] });
+    save();
+    editRoutine(r.id);
+    return;
+  }
+
+  if (!state.active) return;
+  state.active.entries.push(makeEntry({ name, type: t }));
+  save();
+  closeSheet();
+  render();
+}
+
+/** How should this be recorded? Asked only for a name the app hasn't seen. */
+function askCustomType(name, pick, contextId) {
+  openSheet('What kind of exercise?', `
+    <p class="small muted" style="margin-top:0">How should <strong>${esc(name)}</strong> be recorded?</p>
+    ${[
+      ['lifting', 'Weight and reps', 'Bench press, curls, leg press'],
+      ['timed', 'A held time', 'Planks, dead hangs, wall sits'],
+      ['cardio', 'Distance and duration', 'Runs, rides, rowing'],
+      ['practice', 'Just a duration', 'Yoga, pilates, mobility, stretching'],
+    ].map(([type, title, eg]) => `
+      <button class="pick" data-action="custom-type" data-type="${type}"
+              data-name="${esc(name)}" data-pick="${esc(pick || '')}"
+              data-ctx="${esc(contextId || '')}">
+        <div class="grow">
+          <div class="nm">${title}</div>
+          <div class="card-sub">${eg}</div>
+        </div>
+        <span class="pill ${type}">${type}</span>
+      </button>`).join('')}`);
+}
+
 function exercisePicker(onPickAction, contextId) {
   const groups = [...new Set(LIBRARY.map((e) => e.group))];
+  const ctx = esc(contextId || '');
+  const mine = myExercises();
+
+  const row = (name, type, sub) => `
+    <button class="pick" data-action="${onPickAction}" data-ctx="${ctx}"
+            data-name="${esc(name)}" data-type="${type}">
+      <div class="grow">
+        <div class="nm">${esc(name)}</div>
+        ${sub ? `<div class="card-sub">${esc(sub)}</div>` : ''}
+      </div>
+      <span class="pill ${type}">${type}</span>
+    </button>`;
 
   openSheet('Add exercise', `
     <input class="text" id="ex-search" placeholder="Search, or type a custom name" autocomplete="off">
-    <button class="btn block secondary" data-action="add-custom" data-ctx="${contextId || ''}"
+    <button class="btn block secondary" data-action="add-custom" data-ctx="${ctx}"
             data-pick="${onPickAction}" style="margin:10px 0 16px">Add as custom exercise</button>
     <div id="ex-list">
+      ${mine.length ? `
+        <h3 class="small muted" style="margin:14px 0 8px">ADDED BY YOU</h3>
+        ${mine.map((e) => {
+          const bits = [];
+          if (e.sessions) bits.push(plural(e.sessions, 'workout'));
+          if (e.routines) bits.push(`in ${plural(e.routines, 'routine')}`);
+          return row(e.name, e.type, bits.join(' · '));
+        }).join('')}` : ''}
       ${groups.map((g) => `
         <h3 class="small muted" style="margin:14px 0 8px">${g.toUpperCase()}</h3>
-        ${LIBRARY.filter((e) => e.group === g).map((e) => `
-          <button class="pick" data-action="${onPickAction}" data-ctx="${contextId || ''}"
-                  data-name="${esc(e.name)}" data-type="${e.type}">
-            <div class="grow"><div class="nm">${esc(e.name)}</div></div>
-            <span class="pill ${e.type}">${e.type}</span>
-          </button>`).join('')}`).join('')}
+        ${LIBRARY.filter((e) => e.group === g).map((e) => row(e.name, e.type, '')).join('')}`).join('')}
     </div>`);
 
   $('#ex-search').addEventListener('input', (ev) => {
@@ -3246,10 +3373,7 @@ document.addEventListener('click', (ev) => {
       break;
 
     case 'pick-into-session':
-      state.active.entries.push(makeEntry({ name: btn.dataset.name, type: btn.dataset.type }));
-      save();
-      closeSheet();
-      render();
+      chooseExercise('pick-into-session', '', btn.dataset.name, btn.dataset.type);
       break;
 
     case 'remove-entry': {
@@ -3484,13 +3608,9 @@ document.addEventListener('click', (ev) => {
       break;
     }
 
-    case 'pick-into-routine': {
-      const r = state.routines.find((x) => x.id === btn.dataset.ctx);
-      r.items.push({ name: btn.dataset.name, type: btn.dataset.type, sets: [{}] });
-      save();
-      editRoutine(r.id);
+    case 'pick-into-routine':
+      chooseExercise('pick-into-routine', btn.dataset.ctx, btn.dataset.name, btn.dataset.type);
       break;
-    }
 
 
     case 'routine-save': {
@@ -3506,41 +3626,59 @@ document.addEventListener('click', (ev) => {
     case 'add-custom': {
       const name = ($('#ex-search') ? $('#ex-search').value : '').trim();
       if (!name) { toast('Type a name first'); return; }
-      openSheet('What kind of exercise?', `
-        <p class="small muted" style="margin-top:0">How should <strong>${esc(name)}</strong> be recorded?</p>
-        ${[
-          ['lifting', 'Weight and reps', 'Bench press, curls, leg press'],
-          ['timed', 'A held time', 'Planks, dead hangs, wall sits'],
-          ['cardio', 'Distance and duration', 'Runs, rides, rowing'],
-          ['practice', 'Just a duration', 'Yoga, pilates, mobility, stretching'],
-        ].map(([type, title, eg]) => `
-          <button class="pick" data-action="custom-type" data-type="${type}"
+
+      /* Typing "planks" when the log already says "Plank" quietly starts a
+         second history, and nothing says so until the chart looks wrong. Say
+         it now, while it's one tap to fix — but only offer, because only the
+         person who wrote both names knows whether they meant the same lift. */
+      const existing = knownExercises().find((e) => sameExercise(e.name, name));
+      if (existing && existing.name !== name) {
+        /* A name already in your log and a name only in the built-in list are
+           different situations, and saying "you log this as" about something
+           you have never logged is simply untrue. */
+        const history = (existing.sessions || 0) + (existing.routines || 0);
+        openSheet(history ? 'You already have this one' : 'There is one of these already', `
+          <p class="small muted" style="margin-top:0">${history
+            ? `You log this as <strong>${esc(existing.name)}</strong>. Adding
+               <strong>${esc(name)}</strong> as well would track them separately —
+               two charts, two sets of records, neither showing the whole picture.`
+            : `Cadence already knows <strong>${esc(existing.name)}</strong>. Using
+               that spelling keeps everything you log under one name.`}
+          </p>
+          <button class="pick" data-action="${esc(btn.dataset.pick || '')}"
+                  data-ctx="${esc(btn.dataset.ctx || '')}"
+                  data-name="${esc(existing.name)}" data-type="${esc(existing.type)}">
+            <div class="grow">
+              <div class="nm">Use ${esc(existing.name)}</div>
+              <div class="card-sub">Keeps it all together</div>
+            </div>
+            <span class="pill ${esc(existing.type)}">${esc(existing.type)}</span>
+          </button>
+          <button class="linkish" data-action="add-custom-anyway" style="margin-top:10px"
                   data-name="${esc(name)}" data-pick="${esc(btn.dataset.pick || '')}"
                   data-ctx="${esc(btn.dataset.ctx || '')}">
-            <div class="grow">
-              <div class="nm">${title}</div>
-              <div class="card-sub">${eg}</div>
-            </div>
-            <span class="pill ${type}">${type}</span>
-          </button>`).join('')}`);
+            No, "${esc(name)}" is a different exercise
+          </button>`);
+        break;
+      }
+
+      /* Exactly what they already call it — no question worth asking. */
+      if (existing) {
+        chooseExercise(btn.dataset.pick, btn.dataset.ctx, existing.name, existing.type);
+        break;
+      }
+
+      askCustomType(name, btn.dataset.pick, btn.dataset.ctx);
       break;
     }
 
-    case 'custom-type': {
-      const { name, type } = btn.dataset;
-      if (btn.dataset.pick === 'pick-into-routine') {
-        const r = state.routines.find((x) => x.id === btn.dataset.ctx);
-        r.items.push({ name, type });
-        save();
-        editRoutine(r.id);
-      } else {
-        state.active.entries.push(makeEntry({ name, type }));
-        save();
-        closeSheet();
-        render();
-      }
+    case 'add-custom-anyway':
+      askCustomType(btn.dataset.name, btn.dataset.pick, btn.dataset.ctx);
       break;
-    }
+
+    case 'custom-type':
+      chooseExercise(btn.dataset.pick, btn.dataset.ctx, btn.dataset.name, btn.dataset.type);
+      break;
 
     /* ---- logging onto a specific day ---- */
     case 'log-on-day':
@@ -3858,6 +3996,20 @@ document.addEventListener('click', (ev) => {
     case 'exercise-names':
       openExerciseNames();
       break;
+
+    case 'merge-dupes': {
+      const g = dupeGroups[Number(btn.dataset.g)];
+      if (!g || g.mixed) return;
+      const others = g.names.filter((n) => n !== g.keep);
+      if (!confirm(`Merge ${others.map((n) => `"${n}"`).join(' and ')} into "${g.keep}"?\n\n`
+        + "Their histories will be combined and this can't be undone without a backup.")) return;
+      let touched = 0;
+      others.forEach((n) => { touched += renameExerciseEverywhere(n, g.keep); });
+      save();
+      openExerciseNames();
+      toast(`Merged into ${g.keep} · ${plural(touched, 'place')} updated`);
+      break;
+    }
 
     case 'rename-exercise': {
       const from = btn.dataset.name;

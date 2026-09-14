@@ -109,6 +109,73 @@ function convertWeight(value, from, to) {
 /* --------------------------------------------------- sharing a routine */
 
 
+/* ------------------------------------------------------------- naming things
+
+   Everything that makes the log worth keeping — "last time", personal records,
+   the progress chart, most-trained — finds an exercise by matching its name
+   exactly. That is a deliberate choice, because the alternative is the app
+   deciding two of your exercises are the same one. But it does mean "planks"
+   and "Plank" are two separate histories, and nothing about the app says so
+   until the chart looks wrong.
+
+   These make that visible rather than automatic: the key is what the app uses
+   to *offer* a merge, never to apply one.                                   */
+
+function norm(s) {
+  return String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+/**
+ * Strip a trailing plural from each word.
+ *
+ * @param {string} key
+ * @param {number} [minLength=4] shortest word to touch. The library matcher
+ *   wants 4, so "abs" and "ups" are left alone; name-matching wants 3, so
+ *   "Pull Ups" and "Pull Up" are recognised as one exercise.
+ */
+function singularize(key, minLength) {
+  const min = minLength || 4;
+  return key.split(' ')
+    .map((w) => (w.length >= min && w.endsWith('s') && !w.endsWith('ss') ? w.slice(0, -1) : w))
+    .join(' ');
+}
+
+/**
+ * The key two names share when they're the same exercise written differently.
+ *
+ * Case, punctuation, spacing and a trailing plural only — so "Pull-Ups",
+ * "pull ups" and "PullUp" are one exercise. Kept deliberately narrow past that:
+ * "Forearm Plank" and "Plank" are different movements at different difficulty,
+ * and pairing them for a one-tap merge would combine histories that should not
+ * be combined.
+ */
+function exerciseKey(name) {
+  return singularize(norm(name), 3).replace(/ /g, '');
+}
+
+/** Same exercise, differently typed. Two blanks are not a match. */
+function sameExercise(a, b) {
+  const k = exerciseKey(a);
+  return !!k && k === exerciseKey(b);
+}
+
+/**
+ * Group a list of exercise names by what they'd merge into.
+ * @returns {Array<string[]>} only the groups with more than one spelling,
+ *   each ordered as given, so the caller can put the most-used one first.
+ */
+function duplicateNameGroups(names) {
+  const byKey = new Map();
+  (names || []).forEach((name) => {
+    const k = exerciseKey(name);
+    if (!k) return;
+    if (!byKey.has(k)) byKey.set(k, []);
+    const group = byKey.get(k);
+    if (!group.includes(name)) group.push(name);
+  });
+  return [...byKey.values()].filter((g) => g.length > 1);
+}
+
 /* ------------------------------------------------- editing an exercise target
 
    A routine's exercise holds an array of target sets, which is the right shape

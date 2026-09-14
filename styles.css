@@ -608,6 +608,11 @@ select.text.slim{width:auto;flex:1;min-width:150px;padding:8px 10px;font-size:13
 
 .note-dot{opacity:.55;font-size:11px}
 
+/* A suggestion, not a warning — nothing is wrong yet, the log is just split
+   across two spellings. Uses the accent rather than the warning colour. */
+.card.dupe{border-color:var(--accent);margin-bottom:10px}
+.card.dupe .card-title{font-size:15px}
+
 /* A cue you want to read mid-set, so it keeps the newlines it was written
    with rather than running the lines together. */
 .ex-note{

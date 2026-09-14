@@ -30,8 +30,8 @@
 <!-- See app.html: in flight before the CSS is parsed, and crossorigin because
      fonts are always fetched in CORS mode. -->
 <link rel="preload" href="fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="styles.css?v=41">
-<link rel="stylesheet" href="landing.css?v=41">
+<link rel="stylesheet" href="styles.css?v=42">
+<link rel="stylesheet" href="landing.css?v=42">
 </head>
 <body class="landing">
 
@@ -148,16 +148,49 @@ Vinyasa 45 min</pre>
     </div>
   </section>
 
+  <!-- Sits above the install steps on purpose. It's the reason to trust the
+       thing, and asking someone to install before they know where their data
+       goes is the wrong way round. -->
   <section class="privacy">
-    <h2>No account. Nothing to sign up for.</h2>
+    <h2>There is no server. That's the whole feature.</h2>
     <p>
       No email, no password, no free trial that turns into a subscription. Open it and start
-      logging. Everything you record lives in your own browser storage, so nobody — including
-      me — can see your training, because there is nowhere for it to go.
+      logging.
     </p>
     <p>
-      The trade is that <strong>you</strong> are the backup. Export a file whenever you like:
-      a restoreable backup, or a spreadsheet you can open anywhere or email to a coach.
+      Your training is written to your own device and stays there. Not encrypted-and-uploaded,
+      not anonymised-and-aggregated — never sent. Nobody can read it, including me, because
+      there is nowhere for it to go and nothing to log into.
+    </p>
+    <p>
+      Apps get acquired, sunset and paywalled. Terms of service change. None of that reaches you
+      here: there is no account to lock and no history to gate. <strong>Your log outlives the
+      app.</strong>
+    </p>
+    <p>
+      The trade is real and worth saying out loud: <strong>you are the backup</strong>, and your
+      log lives on one device. Export whenever you like — a restoreable file, or a spreadsheet you
+      can open anywhere or send to a coach. Free forever, whether you have ever paid me anything
+      or not.
+    </p>
+
+    <h3 class="money-head">How this is paid for</h3>
+    <p>Honestly, right now it isn't. No ads, no analytics, nothing to sell.</p>
+    <p>If that changes, here is the rule I am holding myself to:</p>
+    <ul class="rules">
+      <li><strong>Everything free today stays free.</strong> New things may cost. Nothing you
+        already rely on will start costing.</li>
+      <li><strong>You pay once for anything that costs me nothing to run.</strong> A feature on
+        your phone is a feature on your phone.</li>
+      <li><strong>You pay monthly only for the one thing with a monthly bill</strong> — syncing
+        between your devices, if I build it. Optional, end-to-end encrypted, and the app works
+        exactly as it does now if you never touch it.</li>
+      <li><strong>You are never the product.</strong> No ads. Ever. Your export stays free and
+        complete.</li>
+    </ul>
+    <p id="tip-jar" class="small muted" hidden>
+      Want to chip in before any of that exists? <a id="tip-link" href="#">There's a tip jar.</a>
+      Entirely optional — the app is the same either way.
     </p>
   </section>
 
@@ -215,13 +248,32 @@ Vinyasa 45 min</pre>
 
   <section class="closer">
     <a class="btn big" href="app.html">Open Cadence</a>
-    <p class="small muted">Nothing to sign up for. Close the tab and your log is still here.</p>
+    <p class="small muted">Nothing to sign up for. Nothing to cancel. Close the tab and your log
+      is still here.</p>
   </section>
 
 </main>
 
-<script src="util.js?v=41"></script>
+<script src="util.js?v=42"></script>
 <script>
+  /* ------------------------------------------------------------- tip jar
+     Paste a Ko-fi / Buy Me a Coffee / GitHub Sponsors URL between the quotes
+     and the line appears. Left empty, the whole paragraph stays hidden — a
+     dead "support me" link is worse than no link, and the claim above it is
+     that nothing here is asking you for anything. */
+  var SUPPORT_URL = '';
+
+  (function () {
+    if (!SUPPORT_URL) return;
+    var p = document.getElementById('tip-jar');
+    var a = document.getElementById('tip-link');
+    if (!p || !a) return;
+    a.href = SUPPORT_URL;
+    a.rel = 'noopener';
+    a.target = '_blank';
+    p.hidden = false;
+  })();
+
   /* Someone with a log already doesn't need the sales pitch on the button. */
   (function () {
     try {

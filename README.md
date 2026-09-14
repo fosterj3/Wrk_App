@@ -63,6 +63,52 @@ account, which means:
 So use **Settings → Backup file (.json)** now and then; *Import* restores it. There is also a
 **Spreadsheet (.csv)** export for reading and sharing — see below.
 
+### What this is, as a position
+
+Having no server isn't a limitation worked around, it's the product. An incumbent can't copy it,
+because for them the server *is* the business.
+
+But privacy is the **proof, not the promise**. Nobody goes looking for a privacy-respecting
+workout log; they want to know whether they're getting stronger. What sells is what having no
+server *produces* — no signup, works with no signal, nothing to cancel, and a history that can't
+be gated later. Ownership is the reason to believe those, not the headline above them.
+
+Three wedges, sequenced, and deliberately not blended:
+
+| | The job | The line |
+| --- | --- | --- |
+| Try it | Kill the switching cost | *Your program is already written down. Paste it in.* |
+| Keep it | Be worth opening | *Most trackers store your workouts. This one tells you what they mean.* |
+| Trust it | Earn the recommendation | *There's no account, no server and nothing to cancel.* |
+
+The landing page also **never accuses anyone**. "Other apps sell your data" is hard to
+substantiate, risky to aim at a named company, and reads as conspiracy marketing — which lowers
+trust in whoever said it. The structural statement does the comparative work by implication:
+*there is no server, there is nothing to log into.* The reader draws the conclusion, and it lands
+harder because they drew it.
+
+### The money rule
+
+Stated on the landing page so it's a commitment rather than an intention, and repeated here so it
+survives a redesign:
+
+1. **Everything free today stays free.** New things may cost; nothing anyone already relies on
+   starts costing.
+2. **Pay once for anything that costs nothing to run.** A local feature has no recurring bill
+   behind it, so it shouldn't have a recurring price.
+3. **Pay monthly only for the one thing with a monthly bill** — device sync, if it's ever built.
+   Optional, end-to-end encrypted, and the app must keep working exactly as it does now for
+   anyone who never touches it.
+4. **The user is never the product.** No ads. Export stays free and complete — never hold
+   somebody's own training hostage.
+
+Rule 3 is why sync can't be sold as a lifetime unlock: a single payment against a permanent
+hosting cost is a business that gets worse as it grows.
+
+The moment money changes hands, *"you are the backup"* stops being a fair trade and becomes a
+defect. **Ship a much louder backup reminder before taking a penny** — the first support email
+will be "I paid for this and lost my history when I changed phones."
+
 ## Running it locally
 
 The app is plain HTML, CSS and JavaScript — no build step and no dependencies. But it does need to

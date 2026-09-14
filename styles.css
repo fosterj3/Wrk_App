@@ -478,6 +478,41 @@ select.text.slim{width:auto;flex:1;min-width:150px;padding:8px 10px;font-size:13
 .tiles .card{margin-top:0;padding:12px}
 .tile{text-align:center}
 
+/* The tiles are buttons now — they open the working behind the number. Styled
+   to stay looking like cards, because a row of four obvious buttons would
+   shout louder than the figures they carry. */
+button.tile{
+  width:100%;font:inherit;color:inherit;cursor:pointer;
+  -webkit-appearance:none;appearance:none;
+}
+button.tile:active{transform:scale(.985)}
+button.tile:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.tiles-hint{text-align:center;margin:8px 0 0}
+
+/* What the time-of-day bands actually mean. Nowhere in the UI said, so
+   "Midday" was left to the reader to guess at. */
+.band-key{
+  display:flex;flex-wrap:wrap;gap:4px 12px;justify-content:center;
+  margin-top:8px;font-size:11px;color:var(--muted);
+}
+.band-key b{color:var(--text);font-weight:600}
+
+/* The app saying the thing outright, rather than leaving it in the chart. */
+.verdict{
+  margin-top:12px;padding:10px 12px;border-radius:10px;
+  background:var(--surface-2);border-left:2px solid var(--accent);
+  font-size:13px;line-height:1.5;
+}
+.verdict strong{color:var(--text)}
+
+.detail-row{
+  display:flex;align-items:baseline;gap:10px;padding:7px 0;
+  border-bottom:1px solid var(--line);font-size:13px;
+}
+.detail-row:last-child{border-bottom:0}
+.detail-row .grow{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+.detail-row b{font-variant-numeric:tabular-nums}
+
 /* chart marks */
 .viz{width:100%;height:auto;display:block;margin-top:10px;overflow:visible;touch-action:pan-y}
 .viz-grid{stroke:var(--viz-grid);stroke-width:1}
@@ -488,6 +523,12 @@ select.text.slim{width:auto;flex:1;min-width:150px;padding:8px 10px;font-size:13
 .viz-area{fill:var(--viz-area);stroke:none}
 .viz-dot{fill:var(--series-lift);stroke:var(--surface);stroke-width:2}
 .viz-endlabel{fill:var(--text);font-size:11px;font-weight:700}
+
+/* The week still running. Same job as .viz-bar-dim on the column charts: the
+   number is real but incomplete, and a solid line into it reads as a fall. */
+.viz-line-partial{stroke-dasharray:4 4;opacity:.5}
+.viz-dot-partial{fill:var(--viz-dim)}
+.viz-endlabel-partial{fill:var(--muted);font-weight:600}
 .viz-rowlabel{fill:var(--text);font-size:11px}
 .viz-rowvalue{fill:var(--muted);font-size:11px;font-variant-numeric:tabular-nums}
 /* SVG marks need fill, not background — .k-* alone leaves them black. */

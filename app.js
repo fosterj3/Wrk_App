@@ -2370,6 +2370,8 @@ function renderDayDetail(key, sessions) {
 let dataRange = '12w';
 let dataExercise = null;
 let dataMetric = 'e1rm';
+/* Which measure the time-of-day chart is showing: count | volume | cardio | length */
+let dataClock = 'count';
 
 function renderData() {
   const el = $('#view-data');
@@ -2398,8 +2400,8 @@ function renderData() {
 
   const volume = inRange.reduce((n, s) => n + sessionVolume(s), 0);
   const cardioMin = inRange.reduce((n, s) => n + sessionCardioMinutes(s), 0);
-  const perWeek = inRange.length / Math.max(1, (+to - +from) / (7 * 86400000));
   const streak = currentStreak(all);
+  const time = trainingTime(inRange);
 
   /* A week or month still running is de-emphasised so it can't read as a drop.
      A day is never "partial" that way — you either trained or you didn't. */
@@ -2470,17 +2472,25 @@ function renderData() {
   const hasLifting = volSeries.some((d) => d.value > 0);
   const hasCardio = cardioSeries.some((d) => d.value > 0);
 
-  /* --- when of day --- */
+  /* --- when of day ---
+     The same six bands, read four ways. Counts answer "when do I turn up";
+     the other three answer "when does it go well", which is the more
+     interesting question and the one no other tracker asks. */
   const clock = timeOfDayBands(inRange);
+  const metric = TIME_METRICS[dataClock] || TIME_METRICS.count;
   const clockBars = clock.bands.map((b) => ({
+    /* The band names were never defined anywhere, so "Midday" was a guess on
+       the reader's part. The hours go in the label itself. */
     label: b.label,
-    value: b.count,
-    tip: `${b.label}\n${plural(b.count, 'workout')}`
-      + (b.volume ? `\n${compact(Math.round(b.volume / b.count))} ${unit} average` : ''),
+    value: Math.round(metric.per(b)),
+    tip: `${b.label} · ${b.hours}\n${plural(b.count, 'workout')}`
+      + (dataClock === 'count' ? ''
+        : `\n${clockValue(Math.round(metric.per(b)))} average`),
   }));
   const busiest = clock.counted
     ? clock.bands.reduce((a, b) => (b.count > a.count ? b : a))
     : null;
+  const verdict = bestTimeOfDay(clock.bands, dataClock);
 
   el.innerHTML = `
     ${backupBanner()}
@@ -2504,39 +2514,54 @@ function renderData() {
     </div>
 
     <div class="tiles">
-      <div class="card tile">
-        <div class="stat-label">Per week</div>
-        <div class="stat-value">${perWeek.toFixed(1)}</div>
-      </div>
-      <div class="card tile">
+      <button class="card tile" data-action="stat-detail" data-stat="time">
+        <div class="stat-label">Time trained</div>
+        <div class="stat-value">${esc(tileTime(time.minutes))}</div>
+      </button>
+      <button class="card tile" data-action="stat-detail" data-stat="streak">
         <div class="stat-label">Streak</div>
         <div class="stat-value">${streak}<span class="stat-unit">wk</span></div>
-      </div>
-      <div class="card tile">
-        <div class="stat-label">Volume</div>
+      </button>
+      <button class="card tile" data-action="stat-detail" data-stat="volume">
+        <div class="stat-label">Weight lifted</div>
         <div class="stat-value">${compact(volume)}<span class="stat-unit">${esc(unit)}</span></div>
-      </div>
-      <div class="card tile">
+      </button>
+      <button class="card tile" data-action="stat-detail" data-stat="cardio">
         <div class="stat-label">Cardio</div>
         <div class="stat-value">${compact(cardioMin)}<span class="stat-unit">min</span></div>
-      </div>
+      </button>
     </div>
+    <p class="small muted tiles-hint">Tap any of these for the detail behind it.</p>
 
     ${renderWeightCard(from, to)}
 
     <div class="card">
       <div class="card-title">How often you trained</div>
       <div class="card-sub">Workouts per ${mode}</div>
-      ${columnChart(freq, { integer: true })}
+      ${trendChart(freq, (v) => plural(v, 'workout'), { integer: true })}
     </div>
 
     ${clock.counted ? `
     <div class="card">
       <div class="card-title">When you train</div>
       <div class="card-sub">${busiest && busiest.count
-        ? `Most often ${busiest.label.toLowerCase()} &middot; ${plural(clock.counted, 'workout')} with a time`
+        ? `Most often ${busiest.label.toLowerCase()}, ${esc(busiest.hours)} &middot; ${plural(clock.counted, 'workout')} with a time`
         : plural(clock.counted, 'workout')}</div>
+
+      <div class="seg wrap" style="margin:10px 0 4px">
+        ${Object.entries(TIME_METRICS).map(([k, m]) => `
+          <button data-action="data-clock" data-val="${k}" class="${dataClock === k ? 'on' : ''}">${esc(m.label)}</button>`).join('')}
+      </div>
+      <div class="card-sub">${dataClock === 'count'
+        ? 'How many workouts started in each part of the day'
+        : `Average per workout, by when it started`}</div>
+
       ${columnChart(clockBars, { integer: true })}
+      <div class="band-key">${clock.bands.map((b) => `
+        <span><b>${esc(b.label)}</b> ${esc(b.hours)}</span>`).join('')}</div>
+
+      ${timeVerdict(verdict)}
+
       ${clock.unset ? `<p class="small muted" style="margin:8px 0 0">
         ${plural(clock.unset, 'workout')} logged after the fact ${clock.unset === 1 ? 'has' : 'have'}
         no time set, so ${clock.unset === 1 ? 'it is' : 'they are'} left out. Tap the time on a day in
@@ -2570,9 +2595,14 @@ function renderData() {
       ${progress.length >= 2
         ? columnOrLine(progress, unit)
         : `<p class="small muted">Not enough sessions with ${esc(dataExercise || 'this exercise')} in this range yet — log it twice and the line appears.</p>`}
-      ${dataMetric === 'e1rm' && progress.length >= 2
-        ? '<p class="small muted" style="margin:8px 0 0">Estimated one-rep max (Epley), so heavy triples and lighter sets of ten stay comparable.</p>'
-        : ''}
+      <p class="small muted" style="margin:8px 0 0">${dataMetric === 'e1rm'
+        ? '<strong>Est. 1RM</strong> is an estimate of the most you could lift once, '
+          + 'worked out from the weight and reps you actually did. You never have to '
+          + 'attempt it. It exists so that 5 sets of 5 and a heavy double can be compared '
+          + 'on one line — if it goes up, you got stronger, whatever the reps were.'
+        : '<strong>Top set</strong> is the heaviest weight you put on the bar that session, '
+          + 'ignoring how many reps you got. Simple to read, but a hard set of 10 and an '
+          + 'easy single look identical.'}</p>
     </div>` : ''}
 
     ${hasLifting ? `
@@ -2586,7 +2616,7 @@ function renderData() {
     <div class="card">
       <div class="card-title">Cardio minutes</div>
       <div class="card-sub">Totalled per ${mode}</div>
-      ${columnChart(cardioSeries, { integer: true })}
+      ${trendChart(cardioSeries, (v) => `${Math.round(v)} min`, { integer: true })}
     </div>` : ''}
 
     ${top.length ? `
@@ -2702,6 +2732,245 @@ function openWeightSheet() {
 
 function columnOrLine(points, unit) {
   return lineChart(points, (v) => `${compact(v)} ${unit}`);
+}
+
+/**
+ * A trend over time: a line, because that's what a trend looks like, but
+ * columns when there are too few points for a line to be a line. Zero-based —
+ * these are counts and totals, where a cropped axis would turn one extra
+ * workout into a cliff.
+ */
+function trendChart(points, fmtValue, opts) {
+  if (points.length < 2) return columnChart(points, opts);
+  return lineChart(points, fmtValue, { ...(opts || {}), zeroBase: true });
+}
+
+/** The tile face: "6h 20m", or "45 min" under the hour. */
+function tileTime(minutes) {
+  const m = Math.round(Number(minutes) || 0);
+  if (!m) return '—';
+  return m < 60 ? `${m} min` : formatMinutes(m);
+}
+
+/** Write a time-of-day value in whatever the current metric is measured in. */
+function clockValue(v) {
+  if (dataClock === 'volume') return `${compact(v)} ${state.settings.units}`;
+  if (dataClock === 'cardio' || dataClock === 'length') return `${Math.round(v)} min`;
+  return plural(v, 'workout');
+}
+
+/**
+ * The sentence under the time-of-day chart.
+ *
+ * Says nothing rather than something shaky. An average over two workouts is a
+ * coincidence, and a claim that turns out to be noise costs more than the
+ * silence would have — so when there isn't enough, it says what's missing
+ * instead of hedging.
+ */
+function timeVerdict(v) {
+  if (!v || dataClock === 'count') return '';
+  const kind = { volume: 'lifting', cardio: 'cardio', length: 'workouts' }[dataClock];
+
+  /* Only ever lift in the evening? Then there is no comparison to make, and no
+     number of extra evening sessions would create one. Say that, rather than
+     asking for more workouts that wouldn't help. */
+  if (v.only !== undefined) {
+    return `<p class="small muted" style="margin:10px 0 0">${v.only
+      ? `Every workout with ${kind} in it falls in one part of your day —
+         <strong>${esc(v.only.label)}</strong>, ${esc(v.only.hours)}. Train at another
+         time and this will have something to compare.`
+      : `No ${kind} logged in this range.`}</p>`;
+  }
+
+  if (v.need) {
+    return `<p class="small muted" style="margin:10px 0 0">Not enough yet to call it —
+      about ${plural(v.need, 'more workout')} at a second time of day and this will
+      answer.</p>`;
+  }
+
+  if (v.flat) {
+    return `<p class="small muted" style="margin:10px 0 0">No real difference by time of day.
+      Whatever is moving your ${kind}, it isn't the clock.</p>`;
+  }
+
+  /* Named as a subject rather than a preposition — "in the evening", "at
+     night" and "at midday" all need different words, and the band label is the
+     one thing that reads correctly in every case. */
+  const claim = {
+    volume: `is when you lift most`,
+    cardio: `is when you do most cardio`,
+    length: `is when you train longest`,
+  }[dataClock];
+  const by = {
+    volume: `${v.pct}% more weight than ${esc(v.worst.label)}`,
+    cardio: `${v.pct}% more than ${esc(v.worst.label)}`,
+    length: `${v.pct}% longer than ${esc(v.worst.label)}`,
+  }[dataClock];
+
+  return `<div class="verdict">
+    <strong>${esc(v.best.label)} ${claim}</strong> — about ${by}, per workout.
+    <span class="muted">${esc(v.best.hours)} against ${esc(v.worst.hours)}, across
+    ${plural(v.sample, 'workout')}.</span>
+  </div>`;
+}
+
+/* ------------------------------------------------- what's behind a stat tile */
+
+function statDetail(which) {
+  const all = state.sessions;
+  const { buckets } = makeBuckets(dataRange, all);
+  const from = buckets[0].start;
+  const to = buckets[buckets.length - 1].end;
+  const inRange = sessionsIn(all, from, to);
+  const unit = state.settings.units;
+  const rangeName = RANGES[dataRange].label.toLowerCase();
+  const when = (d) => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+
+  if (which === 'volume') {
+    const rows = volumeByExercise(inRange);
+    const total = rows.reduce((n, r) => n + r.volume, 0);
+    const heaviest = heaviestSet(inRange);
+
+    /* The same window again, immediately before, so the total has something to
+       be bigger or smaller than. */
+    const prevList = sessionsIn(all, new Date(+from - (+to - +from)), from);
+    const prevTotal = prevList.reduce((n, s) => n + sessionVolume(s), 0);
+    const change = prevTotal > 0 ? Math.round(((total - prevTotal) / prevTotal) * 100) : null;
+
+    openSheet('Weight lifted', `
+      <p class="small muted" style="margin-top:0">
+        Every rep you lifted, added up: <strong>3 sets of 8 at 100${esc(unit)}</strong> is
+        2,400. It's the fullest measure of how much work you did — going up means more
+        total work, whether that came from heavier weight, more reps or more sets.
+      </p>
+
+      <div class="card center" style="margin-top:12px">
+        <div class="stat-label">${esc(rangeName)}</div>
+        <div class="hero">${compact(total)}<span class="stat-unit">${esc(unit)}</span></div>
+        ${change !== null ? `<div class="delta ${change > 0 ? 'up' : change < 0 ? 'down' : ''}">
+          ${change > 0 ? '&uarr;' : change < 0 ? '&darr;' : '&mdash;'}
+          ${change === 0 ? 'same as' : `${Math.abs(change)}% vs`} the previous ${esc(rangeName)}
+        </div>` : ''}
+      </div>
+
+      ${heaviest ? `
+        <div class="card" style="margin-top:10px">
+          <div class="card-title">Heaviest set</div>
+          <div class="card-sub">${esc(heaviest.name)} &middot; ${when(heaviest.date)}</div>
+          <div class="stat-value" style="margin-top:6px">${heaviest.weight}<span class="stat-unit">${esc(unit)}</span>
+            ${heaviest.reps ? `<span class="stat-unit">&times; ${heaviest.reps}</span>` : ''}</div>
+        </div>` : ''}
+
+      ${rows.length ? `
+        <div class="card" style="margin-top:10px">
+          <div class="card-title">Where it came from</div>
+          <div class="card-sub">By total weight lifted</div>
+          ${barRows(rows.slice(0, 8).map((r) => ({
+            label: r.name.length > 18 ? `${r.name.slice(0, 17)}…` : r.name,
+            value: r.volume,
+            tip: `${r.name}\n${compact(r.volume)} ${unit} · ${plural(r.sets, 'set')}`,
+          })), (v) => compact(v))}
+          <p class="small muted" style="margin:8px 0 0">Tap an exercise on the workout
+            screen for its own history.</p>
+        </div>` : '<p class="muted small">No lifting logged in this range.</p>'}`);
+    return;
+  }
+
+  if (which === 'cardio') {
+    const b = cardioBreakdown(inRange);
+    openSheet('Cardio', `
+      <p class="small muted" style="margin-top:0">
+        Every minute logged against a distance-and-time exercise in the ${esc(rangeName)}.
+        Yoga and other timed practice is counted separately, not here.
+      </p>
+
+      ${b.kinds.length ? `
+        <div class="card" style="margin-top:12px">
+          <div class="card-title">What you did</div>
+          <div class="card-sub">${plural(Math.round(b.total), 'minute')} across ${plural(b.days.length, 'day')}</div>
+          ${barRows(b.kinds.map((k) => ({
+            label: k.name.length > 18 ? `${k.name.slice(0, 17)}…` : k.name,
+            value: Math.round(k.minutes),
+            tip: `${k.name}\n${Math.round(k.minutes)} min · ${plural(k.sessions, 'session')}`
+              + (k.distance ? `\n${Math.round(k.distance * 10) / 10}${k.unit ? ` ${k.unit}` : ''} total` : ''),
+          })), (v) => `${v}m`)}
+        </div>
+
+        <div class="card" style="margin-top:10px">
+          <div class="card-title">The days you did it</div>
+          <div class="card-sub">Most recent first</div>
+          ${b.days.slice(0, 20).map((d) => `
+            <div class="detail-row">
+              <span>${when(d.date)}</span>
+              <span class="grow muted">${esc(d.kinds.map((k) => k.name).join(', '))}</span>
+              <b>${Math.round(d.minutes)} min</b>
+            </div>`).join('')}
+          ${b.days.length > 20 ? `<p class="small muted" style="margin:8px 0 0">…and ${b.days.length - 20} more.</p>` : ''}
+        </div>`
+        : '<p class="muted small">No cardio logged in this range.</p>'}`);
+    return;
+  }
+
+  if (which === 'time') {
+    const t = trainingTime(inRange);
+    openSheet('Time trained', `
+      <p class="small muted" style="margin-top:0">
+        How long your workouts actually took, in the ${esc(rangeName)}. A live workout is
+        timed from when you start it; one logged after the fact uses the length you typed.
+      </p>
+
+      <div class="card center" style="margin-top:12px">
+        <div class="stat-label">Total</div>
+        <div class="hero">${esc(tileTime(t.minutes))}</div>
+        ${t.timed ? `<div class="card-sub">${esc(tileTime(t.average))} average across
+          ${plural(t.timed, 'workout')}</div>` : ''}
+      </div>
+
+      ${t.longest ? `
+        <div class="card" style="margin-top:10px">
+          <div class="card-title">Longest</div>
+          <div class="card-sub">${esc(t.longest.name)} &middot; ${when(t.longest.date)}</div>
+          <div class="stat-value" style="margin-top:6px">${esc(tileTime(t.longest.minutes))}</div>
+        </div>` : ''}
+
+      ${t.untimed ? `<div class="warnbox" style="margin-top:10px">
+        <strong>${plural(t.untimed, 'workout')} with no length</strong>
+        Imported workouts don't carry one, so ${t.untimed === 1 ? "it isn't" : "they aren't"}
+        counted above rather than being guessed at. Open one from the calendar to type a length.
+      </div>` : ''}`);
+    return;
+  }
+
+  /* Streak — which weeks are actually holding it up. */
+  const weeks = [];
+  const cursor = startOfWeek(new Date());
+  for (let i = 0; i < 12; i++) {
+    const start = new Date(cursor);
+    start.setDate(start.getDate() - i * 7);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 7);
+    weeks.push({ start, count: sessionsIn(all, start, end).length });
+  }
+
+  openSheet('Streak', `
+    <p class="small muted" style="margin-top:0">
+      Weeks in a row with at least one workout, counting back from this one. The current
+      week doesn't break it until it ends — an unfinished week is never held against you.
+    </p>
+    <div class="card center" style="margin-top:12px">
+      <div class="stat-label">Current streak</div>
+      <div class="hero">${currentStreak(all)}<span class="stat-unit">wk</span></div>
+    </div>
+    <div class="card" style="margin-top:10px">
+      <div class="card-title">Last 12 weeks</div>
+      <div class="card-sub">Most recent first</div>
+      ${weeks.map((w, i) => `
+        <div class="detail-row">
+          <span>${i === 0 ? 'This week' : `w/c ${when(w.start)}`}</span>
+          <span class="grow muted">${w.count ? '' : 'nothing logged'}</span>
+          <b class="${w.count ? '' : 'muted'}">${w.count ? plural(w.count, 'workout') : '—'}</b>
+        </div>`).join('')}
+    </div>`);
 }
 
 /* ----------------------------------------------------------------- install */
@@ -4239,6 +4508,17 @@ document.addEventListener('click', (ev) => {
       dataMetric = btn.dataset.val;
       hideTip();
       render();
+      break;
+
+    case 'data-clock':
+      dataClock = btn.dataset.val;
+      hideTip();
+      render();
+      break;
+
+    case 'stat-detail':
+      hideTip();
+      statDetail(btn.dataset.stat);
       break;
 
     case 'install-app':

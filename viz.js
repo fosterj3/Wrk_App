@@ -206,8 +206,39 @@ const TIME_BANDS = [
   { from: 20, to: 29, label: 'Night' },   /* 29 wraps: 8pm through 4:59am */
 ];
 
+/** "5–8am", "8pm–5am" — the band labels mean nothing without this. */
+function bandHours(band) {
+  const clock = (h) => {
+    const hour = h % 24;
+    const am = hour < 12;
+    const twelve = hour % 12 === 0 ? 12 : hour % 12;
+    return { twelve, suffix: am ? 'am' : 'pm' };
+  };
+  const a = clock(band.from);
+  const b = clock(band.to);
+  /* Drop the first suffix when both ends share it: "5–8am", not "5am–8am". */
+  return a.suffix === b.suffix
+    ? `${a.twelve}–${b.twelve}${b.suffix}`
+    : `${a.twelve}${a.suffix}–${b.twelve}${b.suffix}`;
+}
+
+/**
+ * Workouts by time of day, with enough alongside each one to ask which part of
+ * the day suits you rather than only when you turn up.
+ *
+ * Totals *and* counts, because the interesting question is per-workout: six
+ * mornings will out-total two evenings whatever happened in them.
+ */
 function timeOfDayBands(sessions) {
-  const bands = TIME_BANDS.map((b) => ({ ...b, count: 0, volume: 0 }));
+  const bands = TIME_BANDS.map((b) => ({
+    ...b,
+    hours: bandHours(b),
+    count: 0,
+    volume: 0,
+    cardio: 0,
+    minutes: 0,
+    timed: 0,          /* how many of them recorded a length at all */
+  }));
   let unset = 0;
 
   sessions.forEach((s) => {
@@ -219,9 +250,164 @@ function timeOfDayBands(sessions) {
     if (!band) return;
     band.count++;
     band.volume += sessionVolume(s);
+    band.cardio += sessionCardioMinutes(s);
+    const mins = Number(s.durationMs) > 0 ? s.durationMs / 60000 : 0;
+    if (mins > 0) { band.minutes += mins; band.timed++; }
   });
 
   return { bands, unset, counted: sessions.length - unset };
+}
+
+/* What each metric reads off a band, and how many workouts it needs before the
+   average means anything. */
+const TIME_METRICS = {
+  count: { label: 'Workouts', per: (b) => b.count, of: (b) => b.count, integer: true },
+  volume: { label: 'Weight lifted', per: (b) => (b.count ? b.volume / b.count : 0), of: (b) => b.volume },
+  cardio: { label: 'Cardio', per: (b) => (b.count ? b.cardio / b.count : 0), of: (b) => b.cardio },
+  length: { label: 'Length', per: (b) => (b.timed ? b.minutes / b.timed : 0), of: (b) => b.minutes, uses: 'timed' },
+};
+
+/**
+ * Which part of the day this person is at their best, if the data can carry
+ * the claim.
+ *
+ * The guard is the whole point. Across six bands, a dozen workouts leaves two
+ * apiece, and "you lift 30% more at midday" off two sessions is a coincidence
+ * stated as a fact — which is worse than saying nothing, because the moment
+ * one of these is wrong nobody believes the next one either.
+ *
+ * @returns one of:
+ *   {best, worst, pct, sample} — the comparison holds
+ *   {only}                     — you only do this at one time of day
+ *   {need}                     — how many more workouts a second band wants
+ *   {flat}                     — measured, and the clock isn't the variable
+ */
+function bestTimeOfDay(bands, metric, minPerBand) {
+  const m = TIME_METRICS[metric];
+  const min = minPerBand || 3;
+  if (!m || metric === 'count') return { need: 0 };
+
+  const n = (b) => (m.uses === 'timed' ? b.timed : b.count);
+
+  /* Bands that carry this measure at all. Someone who only ever lifts in the
+     evening has nothing to compare, however many workouts they have logged —
+     which is a different answer from "not enough yet", and telling them to do
+     one more workout would be useless advice. */
+  const carries = bands.filter((b) => n(b) > 0 && m.per(b) > 0);
+  if (carries.length < 2) {
+    return { only: carries[0] || null };
+  }
+
+  /* Of those, the ones with enough behind them to average. */
+  const usable = carries.filter((b) => n(b) >= min);
+  if (usable.length < 2) {
+    const second = carries.map(n).sort((a, b) => b - a)[1] || 0;
+    return { need: Math.max(1, min - second) };
+  }
+
+  const ranked = [...usable].sort((a, b) => m.per(b) - m.per(a));
+  const best = ranked[0];
+  const worst = ranked[ranked.length - 1];
+  const pct = Math.round(((m.per(best) - m.per(worst)) / m.per(worst)) * 100);
+
+  /* A couple of percent between two parts of the day is noise wearing a
+     number. Only say it when the gap is big enough to act on. */
+  if (pct < 10) return { flat: true };
+
+  return { best, worst, pct, sample: usable.reduce((t, b) => t + n(b), 0) };
+}
+
+/* --------------------------------------------- what the tiles open up to */
+
+/** Every lifting exercise in the range, by how much work went into it. */
+function volumeByExercise(sessions) {
+  const totals = new Map();
+  sessions.forEach((s) => s.entries.forEach((e) => {
+    if (e.type !== 'lifting') return;
+    let v = 0;
+    let sets = 0;
+    e.sets.forEach((set) => {
+      const w = Number(set.weight);
+      const r = Number(set.reps);
+      if (set.weight !== '' && set.reps !== '' && !isNaN(w) && !isNaN(r)) { v += w * r; sets++; }
+    });
+    if (!v) return;
+    const cur = totals.get(e.name) || { name: e.name, volume: 0, sets: 0 };
+    cur.volume += v;
+    cur.sets += sets;
+    totals.set(e.name, cur);
+  }));
+  return [...totals.values()].sort((a, b) => b.volume - a.volume);
+}
+
+/** The single heaviest set in the range, which is the number people look for. */
+function heaviestSet(sessions) {
+  let best = null;
+  sessions.forEach((s) => s.entries.forEach((e) => {
+    if (e.type !== 'lifting') return;
+    e.sets.forEach((set) => {
+      const w = Number(set.weight);
+      if (set.weight === '' || isNaN(w) || w <= 0) return;
+      if (!best || w > best.weight) {
+        best = { weight: w, reps: Number(set.reps) || 0, name: e.name, date: new Date(s.date) };
+      }
+    });
+  }));
+  return best;
+}
+
+/** Cardio broken out by what it actually was — a run and a ride aren't one thing. */
+function cardioBreakdown(sessions) {
+  const byName = new Map();
+  const days = [];
+
+  [...sessions]
+    .sort((a, b) => +new Date(b.date) - +new Date(a.date))
+    .forEach((s) => {
+      const mins = sessionCardioMinutes(s);
+      if (mins <= 0) return;
+      const kinds = [];
+      s.entries.forEach((e) => {
+        if (e.type !== 'cardio') return;
+        let m = 0;
+        let dist = 0;
+        e.sets.forEach((set) => {
+          const v = Number(set.minutes);
+          if (set.minutes !== '' && !isNaN(v)) m += v;
+          const d = Number(set.distance);
+          if (set.distance !== '' && !isNaN(d)) dist += d;
+        });
+        const cur = byName.get(e.name) || { name: e.name, minutes: 0, distance: 0, sessions: 0, unit: e.distanceUnit || '' };
+        cur.minutes += m;
+        cur.distance += dist;
+        cur.sessions++;
+        byName.set(e.name, cur);
+        kinds.push({ name: e.name, minutes: m, distance: dist, unit: e.distanceUnit || '' });
+      });
+      days.push({ date: new Date(s.date), minutes: mins, kinds });
+    });
+
+  return {
+    kinds: [...byName.values()].sort((a, b) => b.minutes - a.minutes),
+    days,
+    total: days.reduce((n, d) => n + d.minutes, 0),
+  };
+}
+
+/** Time actually recorded. Sessions with no duration are reported, not guessed. */
+function trainingTime(sessions) {
+  let minutes = 0;
+  let timed = 0;
+  let longest = null;
+  sessions.forEach((s) => {
+    const m = Number(s.durationMs) > 0 ? s.durationMs / 60000 : 0;
+    if (m <= 0) return;
+    minutes += m;
+    timed++;
+    if (!longest || m > longest.minutes) longest = { minutes: m, name: s.name, date: new Date(s.date) };
+  });
+  return { minutes, timed, untimed: sessions.length - timed, longest,
+    average: timed ? minutes / timed : 0 };
 }
 
 /* ------------------------------------------------------------- noticing */
@@ -586,23 +772,55 @@ function columnChart(data, opts) {
 /**
  * Line chart, one series — so no legend; the card title names it.
  * Endpoint carries the only direct label.
+ *
+ * @param {Array}    points     [{label, value, tip}]
+ * @param {Function} fmtValue   how to write the endpoint label
+ * @param {object}   [opts]     { zeroBase, integer }
+ *
+ * `zeroBase` matters more than it sounds. The default crops to the data, which
+ * is right for strength — 185 → 205 would be invisible against a zero axis. It
+ * is wrong for a count: two workouts one week and three the next would draw as
+ * a cliff, and a zero week would float above the baseline as though it were
+ * something. Counts and totals pass zeroBase.
  */
-function lineChart(points, fmtValue) {
+function lineChart(points, fmtValue, opts) {
   if (points.length < 2) return '';
+  const { zeroBase, integer } = opts || {};
   const values = points.map((p) => p.value);
   const lo = Math.min(...values);
   const hi = Math.max(...values);
-  /* Don't zero-base: progress of 185 -> 205 would be invisible against 0. */
-  const pad = (hi - lo) * 0.25 || Math.max(hi * 0.1, 1);
-  const min = Math.max(0, lo - pad);
-  const max = hi + pad;
+
+  let min;
+  let max;
+  if (zeroBase) {
+    const scale = niceScale(hi, 4, integer);
+    min = 0;
+    max = scale.max;
+  } else {
+    const pad = (hi - lo) * 0.25 || Math.max(hi * 0.1, 1);
+    min = Math.max(0, lo - pad);
+    max = hi + pad;
+  }
   const span = max - min || 1;
 
   const px = (i) => PAD.left + (PLOT_W / (points.length - 1)) * i;
   const py = (v) => PAD.top + PLOT_H - ((v - min) / span) * PLOT_H;
 
-  const line = points.map((p, i) => `${i ? 'L' : 'M'}${px(i).toFixed(1)} ${py(p.value).toFixed(1)}`).join(' ');
+  const at = (i) => `${px(i).toFixed(1)} ${py(points[i].value).toFixed(1)}`;
+  const line = points.map((p, i) => `${i ? 'L' : 'M'}${at(i)}`).join(' ');
   const area = `${line} L${px(points.length - 1).toFixed(1)} ${PAD.top + PLOT_H} L${px(0).toFixed(1)} ${PAD.top + PLOT_H} Z`;
+
+  /* The week still running has fewer days in it, not fewer workouts, so its
+     point is always low. As a column it was dimmed; as a line it would be a
+     plunge off the end — the same lie drawn more dramatically. The last
+     segment goes dashed instead. */
+  const tailPartial = !!points[points.length - 1].partial && points.length >= 2;
+  const solid = tailPartial
+    ? points.slice(0, -1).map((p, i) => `${i ? 'L' : 'M'}${at(i)}`).join(' ')
+    : line;
+  const tail = tailPartial
+    ? `<path class="viz-line viz-line-partial" d="M${at(points.length - 2)} L${at(points.length - 1)}"/>`
+    : '';
 
   const last = points[points.length - 1];
   const lastX = px(points.length - 1);
@@ -612,12 +830,19 @@ function lineChart(points, fmtValue) {
   const dots = points.map((p, i) => `
     <circle class="viz-hit-dot" cx="${px(i)}" cy="${py(p.value)}" r="12" data-tip="${esc(p.tip)}"/>`).join('');
 
+  /* A zero-based axis reuses the column charts' ticks, so a line and a column
+     chart of the same numbers are read off the same gridlines — and so an
+     integer count never gets a "2.5 workouts" tick. */
   let gridY = '';
-  for (let i = 0; i <= 3; i++) {
-    const v = min + (span / 3) * i;
-    const y = py(v);
-    gridY += `<line class="viz-grid" x1="${PAD.left}" y1="${y}" x2="${W - PAD.right}" y2="${y}"/>`
-      + `<text class="viz-tick" x="${PAD.left - 6}" y="${y + 3.5}" text-anchor="end">${compact(v)}</text>`;
+  if (zeroBase) {
+    gridY = gridAndAxis(niceScale(hi, 4, integer), (v) => compact(v));
+  } else {
+    for (let i = 0; i <= 3; i++) {
+      const v = min + (span / 3) * i;
+      const y = py(v);
+      gridY += `<line class="viz-grid" x1="${PAD.left}" y1="${y}" x2="${W - PAD.right}" y2="${y}"/>`
+        + `<text class="viz-tick" x="${PAD.left - 6}" y="${y + 3.5}" text-anchor="end">${compact(v)}</text>`;
+    }
   }
 
   /* The last point always gets a label — it's the number people actually came
@@ -643,9 +868,11 @@ function lineChart(points, fmtValue) {
   return `<svg class="viz" viewBox="0 0 ${W} ${H}" role="img" aria-label="Progress over time">
     ${gridY}
     <path class="viz-area" d="${area}"/>
-    <path class="viz-line" d="${line}"/>
-    <circle class="viz-dot" cx="${lastX}" cy="${lastY}" r="4.5"/>
-    <text class="viz-endlabel" x="${labelRight ? lastX - 8 : lastX + 8}" y="${lastY - 8}"
+    <path class="viz-line" d="${solid}"/>
+    ${tail}
+    <circle class="viz-dot ${tailPartial ? 'viz-dot-partial' : ''}" cx="${lastX}" cy="${lastY}" r="4.5"/>
+    <text class="viz-endlabel ${tailPartial ? 'viz-endlabel-partial' : ''}"
+          x="${labelRight ? lastX - 8 : lastX + 8}" y="${lastY - 8}"
           text-anchor="${labelRight ? 'end' : 'start'}">${esc(fmtValue(last.value))}</text>
     ${dots}
     ${xt}

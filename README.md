@@ -27,7 +27,8 @@ installed copy, so only the product name changed.
 - **Timers** — a rest countdown that starts on its own when you tick a set, and a stopwatch for planks, runs and classes that writes the elapsed time straight into the set.
 - **Calendar** — month and week views showing which days you trained, colour-coded by lifting, cardio, practice or a mix. Tap any day to see, add or delete a workout — and set the time you actually trained, not when you got round to logging it.
 - **Bodyweight** — log your weight, see a 7-day rolling average against a goal.
-- **Data** — charts for how often you train, when of day you train, what kind, your strength progression per exercise, weekly volume and cardio, and your most-trained lifts.
+- **Data** — charts for how often you train, when of day you train, what kind, your strength progression per exercise, weekly volume and cardio, and your most-trained lifts. Every stat tile opens onto the working behind it.
+- **When your training goes best** — not just when you turn up, but whether you lift more, do more cardio or train longer at one time of day. It only says so when the data can carry the claim.
 - **Dark and light themes** — deep plum throughout, or plum on warm off-white. Follows your phone's setting on first run; switch it any time in Settings.
 - **A walkthrough on first run** — a ten-step spotlight tour of the five tabs. Shows itself once; rerun it any time from Settings.
 - **Tells you what to aim for** — finished every set last time? It suggests the next weight. Dropped a rep? It says hold. Tap to fill it in.
@@ -730,23 +731,70 @@ not in a monospace face.
 Pick a window — 2 weeks, 4 weeks, 12 weeks, 6 months, all time — and everything below re-reads:
 
 - **Headline** — workouts in the window, against the same-length window before it.
-- **Tiles** — workouts per week, current streak, total volume, cardio minutes.
-- **How often you trained** — workouts per day on the short windows, per week on the longer ones, per month once "all time" passes ~6 months.
+- **Tiles** — time trained, current streak, weight lifted, cardio minutes. **All four open**; see below.
+- **How often you trained** — a line, zero-based. Per day on the short windows, per week on the longer ones, per month once "all time" passes ~6 months.
+- **When you train** — see below.
 - **What kind of training** — lifting / cardio / both, as one stacked bar.
 - **Strength progress** — a line per exercise. Defaults to estimated 1RM (Epley) so a heavy
   triple and a light set of ten stay comparable; switch to **Top set** for the raw heaviest weight.
-- **Lifting volume** and **Cardio minutes** — per week; each hides itself if you have no such data.
+  Both are explained in the card, because "1RM" means nothing to someone new.
+- **Lifting volume** (bars) and **Cardio minutes** (a line); each hides itself if you have no such data.
 - **Most-trained exercises** — by sets logged.
 
 Tap or hover any bar, point or segment for exact numbers.
 
-Two deliberate choices worth knowing:
+### The tiles open
+
+A number with no working behind it invites exactly one question — *what is this telling me?* —
+and the tiles had no answer. They're buttons now:
+
+| Tile | What's behind it |
+| --- | --- |
+| **Weight lifted** | What it means in one line, the window against the one before it as a percentage, your heaviest single set, and which exercises the total actually came from |
+| **Cardio** | Split by what it *was* — runs, rides, rowing — then every day you did it, newest first |
+| **Time trained** | Total, average, longest session, and an honest count of workouts carrying no duration |
+| **Streak** | The last 12 weeks, so you can see which ones are holding it up |
+
+"Volume" was renamed **Weight lifted** on the way. It's a standard training term and a poor label:
+it reads as loudness or litres, and the tile gave no clue it meant every rep added up.
+
+**Time trained** replaced *per week*, which was a derived rate people had to stop and decode. Time
+is the one measure that means the same thing whether you lift, run or do yoga. Workouts imported
+from a CSV carry no duration — those are **excluded and reported**, never counted as zero, which
+would drag the average down and quietly lie about it.
+
+### When you train, and when it goes well
+
+The six bands are Early, Morning, Midday, Afternoon, Evening, Night — and the app never said what
+any of them meant, so "Midday" was the reader's guess. **The hours are now printed under the
+chart** (`Early 5–8am`, `Night 8pm–5am`).
+
+The chart also reads four ways: **Workouts / Weight lifted / Cardio / Length**. The last three are
+*per workout*, not totals — six mornings will out-total two evenings whatever happened in them.
+
+Underneath, one sentence saying what it found: *"Evening is when you lift most — about 33% more
+weight than Early, per workout."* Three guards stop that being a guess dressed up as a fact:
+
+1. **At least 3 workouts in each band compared.** Across six bands, a dozen workouts leaves two
+   apiece, and "you lift 30% more at midday" off two sessions is a coincidence.
+2. **At least a 10% gap.** Below that it says there's no real difference, because there isn't.
+3. **At least two bands that carry the measure at all.** Someone who only ever lifts in the
+   evening gets *"every workout with lifting in it falls in one part of your day"* — not "train
+   more", which would be useless advice, because no number of extra evenings would answer it.
+
+A wrong claim here costs more than the silence would: the moment one of these is wrong, nobody
+believes the next one either.
+
+Three deliberate choices worth knowing:
 
 - **The strength chart doesn't start at zero.** Progressing 185 → 205 is invisible on a 0-based
-  axis. The axis is padded around the actual range instead, which is right for a progress line
-  and would be wrong for the volume bars — those *are* zero-based.
+  axis. The axis is padded around the actual range instead. Every other chart — counts, minutes,
+  volume — *is* zero-based, because one workout against two on a cropped axis reads as a cliff,
+  and a zero week would float above the baseline as though it were something.
 - **The in-progress week is greyed, not hidden.** A half-finished week would otherwise read as a
-  collapse in training.
+  collapse in training. On a line chart that meant a plunge off the end, so the last segment goes
+  **dashed** instead — same idea, drawn for a line.
+- **A trend with fewer than two points falls back to columns.** A line needs somewhere to go.
 
 ### Chart colours
 

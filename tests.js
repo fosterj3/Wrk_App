@@ -760,6 +760,172 @@ describe('sharing a routine', () => {
     parseWorkoutText(notedText).routines[0].items.length, 1);
 });
 
+/* ------------------------------------------------------------ the data tab */
+
+describe('time of day', () => {
+  /* The band names were the whole UI for six ranges nobody was ever shown. */
+  eq('a band inside one half of the day drops the repeat',
+    bandHours({ from: 5, to: 8 }), '5–8am');
+  eq('a band crossing noon keeps both', bandHours({ from: 11, to: 14 }), '11am–2pm');
+  eq('an afternoon band reads in pm', bandHours({ from: 14, to: 17 }), '2–5pm');
+  /* 29 is 5am the next day — the night band wraps. */
+  eq('the night band wraps past midnight', bandHours({ from: 20, to: 29 }), '8pm–5am');
+  /* Midnight is 12am, not 12pm — so this one keeps both suffixes. */
+  eq('a band ending at midnight says am', bandHours({ from: 22, to: 24 }), '10pm–12am');
+
+  const at = (hour, entries, durationMin) => ({
+    id: uid(), name: 'W', date: new Date(2026, 4, 6, hour, 30).toISOString(),
+    timeSet: true, durationMs: (durationMin || 0) * 60000, entries: entries || [],
+  });
+  const lift = (weight, reps) => [{ id: uid(), name: 'Squat', type: 'lifting',
+    sets: [{ id: uid(), weight: String(weight), reps: String(reps) }] }];
+
+  const banded = timeOfDayBands([at(6, lift(100, 5)), at(18, lift(200, 5))]);
+  eq('a 6am workout lands in Early', banded.bands[0].count, 1);
+  eq('a 6pm workout lands in Evening', banded.bands[4].count, 1);
+  eq('and the volume goes with it', banded.bands[4].volume, 1000);
+
+  /* The guard is the point of the feature. Two workouts in a band is a
+     coincidence, and stating it as a fact is worse than saying nothing. */
+  const thin = timeOfDayBands([at(6, lift(100, 5)), at(18, lift(200, 5))]);
+  check('two workouts is not enough to call it',
+    bestTimeOfDay(thin.bands, 'volume').need > 0);
+
+  /* Someone who only lifts in the evening has nothing to compare, however many
+     evenings they log — so asking for another workout would be useless advice.
+     That is a different answer from "not enough yet". */
+  const oneBandOnly = timeOfDayBands([
+    at(18, lift(100, 5)), at(18, lift(100, 5)), at(18, lift(100, 5)), at(18, lift(100, 5)),
+    at(7, []), at(7, []), at(7, []),          /* cardio-less mornings: no volume */
+  ]);
+  const single = bestTimeOfDay(oneBandOnly.bands, 'volume');
+  eq('one time of day is reported as such, not as a shortfall',
+    single.need, undefined);
+  eq('...and names the band it all happens in', single.only.label, 'Evening');
+
+  eq('nothing at all to measure', bestTimeOfDay(timeOfDayBands([]).bands, 'volume').only, null);
+
+  const enough = timeOfDayBands([
+    at(6, lift(100, 5)), at(6, lift(100, 5)), at(6, lift(100, 5)),
+    at(18, lift(200, 5)), at(18, lift(200, 5)), at(18, lift(200, 5)),
+  ]);
+  const called = bestTimeOfDay(enough.bands, 'volume');
+  eq('three a side is enough', called.best.label, 'Evening');
+  eq('...against the weakest band', called.worst.label, 'Early');
+  eq('...with the gap as a percentage', called.pct, 100);
+  eq('...and the sample it rests on', called.sample, 6);
+
+  /* Averages, not totals: six mornings out-total two evenings whatever
+     happened in them. */
+  const lopsided = timeOfDayBands([
+    at(6, lift(100, 5)), at(6, lift(100, 5)), at(6, lift(100, 5)), at(6, lift(100, 5)),
+    at(18, lift(120, 5)), at(18, lift(120, 5)), at(18, lift(120, 5)),
+  ]);
+  eq('more sessions do not win on their own',
+    bestTimeOfDay(lopsided.bands, 'volume').best.label, 'Evening');
+
+  /* A couple of percent between two parts of the day is noise with a number
+     attached to it. */
+  const nearlyEqual = timeOfDayBands([
+    at(6, lift(100, 5)), at(6, lift(100, 5)), at(6, lift(100, 5)),
+    at(18, lift(102, 5)), at(18, lift(102, 5)), at(18, lift(102, 5)),
+  ]);
+  check('a 2% gap is reported as no difference',
+    bestTimeOfDay(nearlyEqual.bands, 'volume').flat === true);
+
+  /* Length only counts workouts that recorded one. */
+  const timed = timeOfDayBands([
+    at(6, [], 30), at(6, [], 30), at(6, [], 30),
+    at(18, [], 90), at(18, [], 90), at(18, [], 90),
+  ]);
+  eq('length uses the timed ones', bestTimeOfDay(timed.bands, 'length').best.label, 'Evening');
+  eq('...and says by how much', bestTimeOfDay(timed.bands, 'length').pct, 200);
+
+  const untimed = timeOfDayBands([at(6, [], 0), at(6, [], 0), at(6, [], 0)]);
+  check('workouts with no length are not counted as zero-length',
+    untimed.bands[0].timed === 0 && untimed.bands[0].count === 3);
+
+  check('counting workouts needs no verdict', bestTimeOfDay(enough.bands, 'count').need === 0);
+});
+
+describe('drawing a trend', () => {
+  const pts = (...vals) => vals.map((v, i) => ({ label: `w${i}`, value: v, tip: '' }));
+
+  /* A count has to be read against zero. Cropped to the data, one workout
+     against two would draw as though training had halved off a cliff, and a
+     zero week would float above the baseline as if it were something. */
+  const counts = lineChart(pts(3, 4, 0, 2), (v) => `${v}`, { zeroBase: true, integer: true });
+  check('a zero-based axis starts at 0', /<text[^>]*>0<\/text>/.test(counts), counts.slice(0, 200));
+  check('...and has no fractional workouts', !/>\d+\.\d+</.test(counts));
+
+  /* Strength is the opposite case, and the reason zeroBase is opt-in: 185 to
+     205 against a zero axis is a flat line. */
+  const strength = lineChart(pts(185, 190, 205), (v) => `${v}`);
+  check('a cropped axis does not start at 0', !/<text[^>]*>0<\/text>/.test(strength));
+
+  /* The week still running is short on days, not on effort. */
+  const running = [...pts(4, 4, 1)];
+  running[running.length - 1].partial = true;
+  const live = lineChart(running, (v) => `${v}`, { zeroBase: true, integer: true });
+  check('an unfinished bucket dashes the last segment', /viz-line-partial/.test(live));
+  check('...and marks its endpoint', /viz-dot-partial/.test(live));
+  check('a finished series draws solid throughout',
+    !/viz-line-partial/.test(lineChart(pts(4, 4, 3), (v) => `${v}`, { zeroBase: true })));
+
+  /* One point is not a trend; fall back rather than render an empty box. */
+  eq('a single point draws no line', lineChart(pts(3), (v) => `${v}`), '');
+});
+
+describe('what a stat tile opens up to', () => {
+  const sess = (dateStr, entries, durationMin) => ({
+    id: uid(), name: 'W', date: new Date(dateStr).toISOString(),
+    durationMs: (durationMin || 0) * 60000, entries,
+  });
+  const sessions = [
+    sess('2026-05-06T08:00:00', [
+      { id: 'a', name: 'Squat', type: 'lifting', sets: [
+        { weight: '100', reps: '5' }, { weight: '100', reps: '5' }] },
+      { id: 'b', name: 'Bench', type: 'lifting', sets: [{ weight: '80', reps: '5' }] },
+      { id: 'c', name: 'Run', type: 'cardio', sets: [{ distance: '5', minutes: '30' }] },
+    ], 60),
+    sess('2026-05-08T08:00:00', [
+      { id: 'd', name: 'Squat', type: 'lifting', sets: [{ weight: '120', reps: '3' }] },
+      { id: 'e', name: 'Cycling', type: 'cardio', sets: [{ distance: '20', minutes: '45' }] },
+    ], 0),
+  ];
+
+  /* "Volume" told you a number and nothing about where it came from. */
+  const byEx = volumeByExercise(sessions);
+  eq('volume splits by exercise, biggest first',
+    byEx.map((r) => `${r.name}:${r.volume}`), ['Squat:1360', 'Bench:400']);
+  eq('and counts the sets behind it', byEx[0].sets, 3);
+  eq('cardio contributes no volume', byEx.length, 2);
+
+  const top = heaviestSet(sessions);
+  eq('the heaviest set is found', `${top.name} ${top.weight}x${top.reps}`, 'Squat 120x3');
+
+  /* A run and a ride are not one thing called "cardio". */
+  const cardio = cardioBreakdown(sessions);
+  eq('cardio splits by what it was',
+    cardio.kinds.map((k) => `${k.name}:${k.minutes}`), ['Cycling:45', 'Run:30']);
+  eq('the days are listed, newest first', cardio.days.length, 2);
+  eq('...most recent first', cardio.days[0].minutes, 45);
+  eq('and the total agrees', cardio.total, 75);
+
+  /* An imported workout carries no duration. Counting it as zero would drag
+     the average down and quietly lie; it's excluded and reported instead. */
+  const t = trainingTime(sessions);
+  eq('only timed workouts count toward the total', t.minutes, 60);
+  eq('the untimed ones are reported', t.untimed, 1);
+  eq('the average is over the timed ones', t.average, 60);
+  eq('the longest is named', t.longest.minutes, 60);
+
+  eq('nothing logged is nothing claimed', trainingTime([]).minutes, 0);
+  eq('...and no average', trainingTime([]).average, 0);
+  eq('an empty range has no heaviest set', heaviestSet([]), null);
+  eq('an empty range has no cardio', cardioBreakdown([]).kinds, []);
+});
+
 /* --------------------------------------------------- one exercise, one name */
 
 describe('spotting the same exercise written differently', () => {

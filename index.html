@@ -30,8 +30,8 @@
 <!-- See app.html: in flight before the CSS is parsed, and crossorigin because
      fonts are always fetched in CORS mode. -->
 <link rel="preload" href="fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="styles.css?v=42">
-<link rel="stylesheet" href="landing.css?v=42">
+<link rel="stylesheet" href="styles.css?v=43">
+<link rel="stylesheet" href="landing.css?v=43">
 </head>
 <body class="landing">
 
@@ -159,8 +159,14 @@ Vinyasa 45 min</pre>
     </p>
     <p>
       Your training is written to your own device and stays there. Not encrypted-and-uploaded,
-      not anonymised-and-aggregated — never sent. Nobody can read it, including me, because
-      there is nowhere for it to go and nothing to log into.
+      not anonymised-and-aggregated. <strong>Nothing leaves this device unless you send it
+      yourself.</strong> Nobody can read your log, including me, because there is nowhere for it
+      to go and nothing to log into.
+    </p>
+    <p>
+      There are no leaderboards and there won't be. Nobody can verify anybody's bench press, so a
+      ranking only rewards whoever is loosest with the truth — and the point of this is the
+      progress you can see in your own history, not a position on a table.
     </p>
     <p>
       Apps get acquired, sunset and paywalled. Terms of service change. None of that reaches you
@@ -250,11 +256,15 @@ Vinyasa 45 min</pre>
     <a class="btn big" href="app.html">Open Cadence</a>
     <p class="small muted">Nothing to sign up for. Nothing to cancel. Close the tab and your log
       is still here.</p>
+    <p class="small muted" id="feedback-line" hidden>
+      Updated most weeks, usually because somebody asked.
+      <a id="feedback-link" href="#">Tell me what's missing.</a>
+    </p>
   </section>
 
 </main>
 
-<script src="util.js?v=42"></script>
+<script src="util.js?v=43"></script>
 <script>
   /* ------------------------------------------------------------- tip jar
      Paste a Ko-fi / Buy Me a Coffee / GitHub Sponsors URL between the quotes
@@ -263,15 +273,24 @@ Vinyasa 45 min</pre>
      that nothing here is asking you for anything. */
   var SUPPORT_URL = '';
 
+  /* Kept in step with FEEDBACK_URL in app.js. Both hide their own line when
+     empty, so a dead link can never end up under a paragraph promising you
+     that asking leads somewhere. */
+  var FEEDBACK_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSeTSe5I7CkeAEednuXicMvKt_d-C-ndT-ay0BpyOKVuvV_20A/viewform';
+
   (function () {
-    if (!SUPPORT_URL) return;
-    var p = document.getElementById('tip-jar');
-    var a = document.getElementById('tip-link');
-    if (!p || !a) return;
-    a.href = SUPPORT_URL;
-    a.rel = 'noopener';
-    a.target = '_blank';
-    p.hidden = false;
+    var wire = function (pId, aId, url) {
+      if (!url) return;
+      var p = document.getElementById(pId);
+      var a = document.getElementById(aId);
+      if (!p || !a) return;
+      a.href = url;
+      a.rel = 'noopener';
+      a.target = '_blank';
+      p.hidden = false;
+    };
+    wire('tip-jar', 'tip-link', SUPPORT_URL);
+    wire('feedback-line', 'feedback-link', FEEDBACK_URL);
   })();
 
   /* Someone with a log already doesn't need the sales pitch on the button. */

@@ -3,6 +3,71 @@
 
 'use strict';
 
+/* --------------------------------------------------------- version & notes */
+
+/**
+ * Read off this script's own ?v= rather than kept as a constant, because a
+ * constant is a third place to remember to bump and the one that would quietly
+ * drift. If it ever reads "—", the page was opened without a version query,
+ * which only happens locally.
+ */
+const APP_VERSION = (() => {
+  const tag = document.querySelector('script[src*="app.js"]');
+  const hit = tag && tag.getAttribute('src').match(/[?&]v=(\d+)/);
+  return hit ? hit[1] : '—';
+})();
+
+/**
+ * Where feedback goes. Paste a form URL between the quotes and the buttons
+ * appear; leave it empty and every mention of feedback stays hidden, because
+ * inviting someone to tell you something and then handing them a dead link is
+ * worse than not asking.
+ */
+const FEEDBACK_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSeTSe5I7CkeAEednuXicMvKt_d-C-ndT-ay0BpyOKVuvV_20A/viewform';
+
+/**
+ * What changed, newest first.
+ *
+ * Written for whoever uses the app, not from the commit log: "you can fix the
+ * sets and reps before saving" rather than "refactored the import preview".
+ * This is the half that turns a suggestion box into something worth writing to
+ * — people need to see that asking led somewhere.
+ */
+const CHANGELOG = [
+  {
+    v: '42', on: '2026-09-14',
+    items: ['Said plainly on the front page where your training lives, and how this would ever be paid for.'],
+  },
+  {
+    v: '40–41', on: '2026-09-14',
+    items: [
+      'Every stat on the Data tab now opens — tap Weight lifted to see which exercises it came from, or Cardio to see the days and whether you ran or rode.',
+      '"Per week" became Time trained, which means the same thing whether you lift, run or do yoga.',
+      'The time-of-day chart shows what Early and Midday actually mean, and can tell you when you lift most, do most cardio or train longest.',
+      'Charts read better: daily views are bars again rather than a spiky line, and the axis wastes less room.',
+    ],
+  },
+  {
+    v: '39', on: '2026-09-14',
+    items: ['Closing a routine or a paste you were still working on now asks, instead of throwing it away.'],
+  },
+  {
+    v: '38', on: '2026-09-14',
+    items: [
+      'Exercises you invent are offered again next time, under "Added by you", so you never retype one.',
+      'Type a name close to one you already use and it offers the existing one, so a single exercise stops becoming two half-histories.',
+    ],
+  },
+  {
+    v: '37', on: '2026-09-14',
+    items: [
+      'Pasting a program written out in full now works — numbered exercises, sets on the line below, bulleted form cues and all.',
+      'Those cues are kept as notes on the exercise, and notes follow it into your workout.',
+      'The paste preview lets you fix the sets and reps, not just the name.',
+    ],
+  },
+];
+
 /* ------------------------------------------------------------------ store */
 
 /* Deliberately still 'wrk.v1' — the app was renamed to Cadence, but changing
@@ -20,6 +85,10 @@ const DEFAULTS = {
     /* null = never offered. Set once the walkthrough is finished or skipped,
        so it introduces itself exactly once and afterwards only on request. */
     tourDone: null,
+    /* The "this gets updated, tell me what's wrong" card shows once and then
+       lives in Settings. A second nag on the workout screen would be competing
+       with the backup reminder, which is protecting something that matters more. */
+    feedbackCardSeen: false,
   },
   routines: [],
   weights: [],          /* bodyweight log: [{ id, date, value }] */
@@ -868,6 +937,34 @@ function noticeCard() {
     </div>`;
 }
 
+/**
+ * Shown once, then never again from here.
+ *
+ * Two things worth saying to someone who has started using this: it keeps
+ * changing, and you can steer that. Neither is worth a permanent banner on the
+ * screen people open mid-workout — the backup reminder has a better claim to
+ * that space, because it's protecting something that can't be recovered.
+ */
+function feedbackCard() {
+  if (!FEEDBACK_URL) return '';
+  if (state.settings.feedbackCardSeen) return '';
+  /* Not on day one. Someone who has logged nothing has no opinion yet. */
+  if (state.sessions.length < 3) return '';
+
+  return `
+    <div class="card notice">
+      <div class="grow">
+        <strong>This gets updated most weeks.</strong>
+        <p class="small muted" style="margin:6px 0 0">It updates itself — close it and reopen
+          and you're current. If something's broken or missing, say so and it'll probably get
+          fixed. Settings has the feedback link and what's changed lately.</p>
+        <button class="linkish" data-action="go-about" style="margin-top:8px">Take me there</button>
+      </div>
+      <button class="icon-btn" data-action="dismiss-feedback-card"
+              aria-label="Dismiss">&times;</button>
+    </div>`;
+}
+
 function backupBanner() {
   if (state.sessions.length < 5) return '';
 
@@ -1201,6 +1298,7 @@ function renderWorkout() {
       ${backupBanner()}
       ${goalCard()}
       ${noticeCard()}
+      ${feedbackCard()}
       <div class="empty">
         <h3>No workout in progress</h3>
         <p>Start from scratch, or load one of your routines.</p>
@@ -3446,6 +3544,8 @@ function renderSettings() {
       <button class="btn block danger" data-action="wipe" style="margin-top:16px">Erase all data</button>
     </div>
 
+    ${aboutCard()}
+
     <div class="brand-footer">
       <span class="mark" aria-hidden="true"></span>
       <span class="brand-name">Cadence</span>
@@ -3454,6 +3554,50 @@ function renderSettings() {
         ${plural(state.sessions.length, 'workout')} &middot;
         ${plural(state.routines.length, 'routine')}
       </span>
+    </div>`;
+}
+
+/**
+ * Version, updates and feedback.
+ *
+ * The app already updates itself — it re-registers the worker on load and
+ * reloads once when a new one takes over. What it never did was *say* so, so
+ * there was no way to tell a current copy from a stale one, and no reason to
+ * believe anything you asked for had landed.
+ */
+function aboutCard() {
+  return `
+    <div class="card">
+      <div class="card-title">About &amp; updates</div>
+      <p class="small muted" style="margin:6px 0 12px">
+        Cadence updates itself — close it and open it again and you're current.
+        This is version <strong>${esc(APP_VERSION)}</strong>.
+      </p>
+
+      <button class="btn block secondary" data-action="check-updates">Check for updates</button>
+
+      ${FEEDBACK_URL ? `
+        <h3 class="settings-group">Tell me what's wrong with it</h3>
+        <p class="small muted" style="margin:0 0 10px">Something broken, something missing,
+          something that reads badly — all of it is useful, and it's read by the person who
+          can change it.</p>
+        <a class="btn block secondary" href="${esc(FEEDBACK_URL)}" target="_blank" rel="noopener">
+          Send feedback
+        </a>` : ''}
+
+      <h3 class="settings-group">What's new</h3>
+      ${CHANGELOG.map((rel) => `
+        <div class="release">
+          <div class="release-head">
+            <b>Version ${esc(rel.v)}</b>
+            <!-- keyToDate, not new Date(): a bare "2026-09-14" parses as UTC
+                 midnight and then displays in local time, which shows the 13th
+                 to anyone west of Greenwich. -->
+            <span class="muted">${esc(keyToDate(rel.on).toLocaleDateString(undefined,
+              { month: 'short', day: 'numeric' }))}</span>
+          </div>
+          <ul>${rel.items.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>
+        </div>`).join('')}
     </div>`;
 }
 
@@ -4463,6 +4607,28 @@ document.addEventListener('click', (ev) => {
       openExerciseNames();
       break;
 
+    case 'dismiss-feedback-card':
+      state.settings.feedbackCardSeen = true;
+      save();
+      render();
+      break;
+
+    case 'go-about':
+      state.settings.feedbackCardSeen = true;
+      save();
+      go('settings');
+      /* Straight to the part they were sent for, rather than the top of a long
+         page with the answer somewhere below the fold. */
+      requestAnimationFrame(() => {
+        const card = $$('#view-settings .card').find((c) => /About & updates/.test(c.textContent));
+        if (card) card.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      });
+      break;
+
+    case 'check-updates':
+      checkForUpdate(true);
+      break;
+
     case 'merge-dupes': {
       const g = dupeGroups[Number(btn.dataset.g)];
       if (!g || g.mixed) return;
@@ -4945,6 +5111,49 @@ if (!state.settings.theme) {
 }
 applyTheme();
 
+/* -------------------------------------------------------------- updating */
+
+/* Held so the Settings button can ask the same registration the page did. */
+let swRegistration = null;
+let lastUpdateCheck = 0;
+
+/**
+ * Ask whether there's a newer version.
+ *
+ * @param {boolean} loud  true when a person pressed the button, so silence is
+ *   itself an answer they are owed: "you're up to date".
+ *
+ * GitHub Pages serves sw.js with a ten-minute max-age, so a check straight
+ * after a release can legitimately find nothing. That's why the button says
+ * what it found rather than pretending to have done something.
+ */
+function checkForUpdate(loud) {
+  if (!swRegistration) {
+    if (loud) toast('Updates need the app installed or reloaded once');
+    return;
+  }
+  /* A page coming back into view can fire this repeatedly; once a minute is
+     plenty for something released a few times a week. */
+  const now = Date.now();
+  if (!loud && now - lastUpdateCheck < 60000) return;
+  lastUpdateCheck = now;
+
+  if (loud) toast('Checking…');
+  swRegistration.update()
+    .then(() => {
+      /* An update found here installs and takes over on its own, which reloads
+         the page — so reaching this line quietly means there was nothing. */
+      if (loud) {
+        setTimeout(() => {
+          if (!swRegistration.installing && !swRegistration.waiting) {
+            toast(`You're up to date — version ${APP_VERSION}`);
+          }
+        }, 1200);
+      }
+    })
+    .catch(() => { if (loud) toast("Couldn't check — no connection?"); });
+}
+
 if ('serviceWorker' in navigator) {
   /* When a new worker takes over, reload once so the page is running the same
      version it just installed. Without this the update only appears on the
@@ -4956,15 +5165,33 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (!hadController || reloading) return;
     reloading = true;
+    /* Survives the reload so the new version can say it arrived. Otherwise the
+       app silently blinks and the work looks like it never shipped. */
+    try { sessionStorage.setItem('wrk.justUpdated', '1'); } catch (e) { /* fine */ }
     location.reload();
   });
 
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('sw.js')
-      .then((reg) => reg.update().catch(() => {}))
+      .then((reg) => { swRegistration = reg; return reg.update().catch(() => {}); })
       .catch((err) => console.warn('Service worker failed', err));
   });
+
+  /* An installed app is usually suspended rather than closed, so it can go days
+     without firing 'load' — and would sit on an old version the whole time.
+     Coming back into view is the moment to re-check. */
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') checkForUpdate(false);
+  });
 }
+
+/* Said after the reload, not before it. */
+try {
+  if (sessionStorage.getItem('wrk.justUpdated')) {
+    sessionStorage.removeItem('wrk.justUpdated');
+    setTimeout(() => toast(`Updated to version ${APP_VERSION}`), 600);
+  }
+} catch (e) { /* no sessionStorage, no announcement */ }
 
 go('workout');
 

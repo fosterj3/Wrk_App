@@ -87,6 +87,24 @@ trust in whoever said it. The structural statement does the comparative work by 
 *there is no server, there is nothing to log into.* The reader draws the conclusion, and it lands
 harder because they drew it.
 
+### No leaderboards
+
+Decided, not deferred. Two reasons, and the second is the one that settles it:
+
+They'd need accounts, a server, moderation and abuse handling — and *"the one that doesn't watch
+you"* and *"the one where everyone watches each other"* cannot both be the pitch. Social fitness
+is also Strava's, with a decade of network effects behind it; "the private one" is the position
+Strava structurally cannot take, because their server is their business.
+
+But the real reason is that **nobody can verify anybody's bench press.** An unverifiable ranking
+rewards whoever is loosest with the truth, and it selects for ego-lifting over training. Strava
+has GPS and still has a cheating problem.
+
+Community, where it exists here, is users and the person building it — asked for, shipped, and
+visible in *Settings → What's new*. Users reach each other through artifacts the app already
+makes (a routine as text, a week as an image) on platforms that already exist. None of that
+needs a server.
+
 ### The money rule
 
 Stated on the landing page so it's a commitment rather than an intention, and repeated here so it

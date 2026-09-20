@@ -1321,7 +1321,8 @@ function renderWorkout() {
     ${a.entries.map(renderEntry).join('')}
 
     ${a.entries.length
-      ? '<span class="swipe-hint">Swipe an exercise or a set left to remove it</span>'
+      ? '<span class="swipe-hint">Swipe an exercise or a set left to remove it &mdash; '
+        + 'a short swipe shows Delete, a long one does it</span>'
       : ''}
 
     <div style="margin-top:14px">
@@ -1520,6 +1521,44 @@ function findSet(entryId, setId) {
   return { entry, set: entry && entry.sets.find((s) => s.id === setId) };
 }
 
+/**
+ * Correct how long a saved workout took.
+ *
+ * A live session is timed from when you start it to when you press Finish, and
+ * forgetting to press it is the most ordinary mistake there is — the clock
+ * keeps running through the drive home and files a three-hour workout. The
+ * start time was already editable in the calendar; the length was printed
+ * beside it as plain text, which is the one thing you'd actually want to fix.
+ */
+function editDurationSheet(id) {
+  const s = state.sessions.find((x) => x.id === id);
+  if (!s) return;
+  const d = splitDuration((Number(s.durationMs) || 0) / 60000);
+
+  openSheet('How long did it take?', `
+    <p class="small muted" style="margin-top:0">
+      ${esc(s.name)} &middot; ${esc(new Date(s.date).toLocaleDateString(undefined,
+        { weekday: 'long', month: 'long', day: 'numeric' }))}
+    </p>
+    <div class="tfields">
+      <label class="tfield">
+        <span>Hours</span>
+        <input class="text" id="dur-h" type="number" inputmode="numeric" min="0" max="24"
+               placeholder="0" value="${d.h || ''}">
+      </label>
+      <label class="tfield">
+        <span>Minutes</span>
+        <input class="text" id="dur-m" type="number" inputmode="numeric" min="0" max="59"
+               placeholder="0" value="${d.m || ''}">
+      </label>
+    </div>
+    <button class="btn block" data-action="save-duration" data-id="${esc(id)}"
+            style="margin-top:14px">Save</button>
+    ${Number(s.durationMs) > 0 ? `
+      <button class="linkish" data-action="clear-duration" data-id="${esc(id)}"
+              style="margin-top:12px">I don't know how long it took</button>` : ''}`);
+}
+
 function finishSession() {
   const a = state.active;
   if (!a) return;
@@ -1579,7 +1618,18 @@ function finishSession() {
   stopTimer();
   releaseScreen();
   save();
-  toast(a.editingId ? 'Workout updated' : (a.backdated ? 'Workout logged' : 'Workout saved'));
+  /* A live workout says how long it thinks it took, right here, because this is
+     the moment somebody notices the timer ran through the drive home. Typed
+     and backdated ones already had their length entered by hand. */
+  if (a.editingId) toast('Workout updated');
+  else if (a.backdated) toast('Workout logged');
+  else {
+    /* A literal middle dot: toast() writes textContent, so an entity would
+       show up as "&middot;" on screen. */
+    toast(`Saved · ${fmtDuration(record.durationMs)}`,
+      { label: 'Fix length', run: () => editDurationSheet(record.id) });
+  }
+
   calCursor = new Date(landedOn);
   calSelected = dayKey(landedOn);
   go('calendar');
@@ -2400,7 +2450,13 @@ function renderDayDetail(key, sessions) {
                        data-session-time="${s.id}"
                        aria-label="Time of ${esc(s.name)}"
                        title="${hasRealTime(s) ? 'Change the time' : 'Time not set — tap to say when this was'}">
-                ${s.durationMs > 0 ? `&middot; ${fmtDuration(s.durationMs)}` : ''}
+                <!-- The length is a control too. It sat here as plain text
+                     beside an editable time, which is backwards: forgetting to
+                     press Finish is far more common than mistyping the hour. -->
+                &middot; <button class="linkish inline-edit" data-action="edit-duration"
+                        data-id="${s.id}"
+                        title="Change how long this took"
+                        >${s.durationMs > 0 ? fmtDuration(s.durationMs) : 'no length'}</button>
                 &middot; ${plural(sets, 'set')}
               </div>
             </div>
@@ -4550,6 +4606,36 @@ document.addEventListener('click', (ev) => {
       openExerciseNames();
       break;
 
+    case 'edit-duration':
+      editDurationSheet(id);
+      break;
+
+    case 'save-duration': {
+      const s = state.sessions.find((x) => x.id === id);
+      const h = $('#dur-h');
+      const m = $('#dur-m');
+      if (!s || !h || !m) return;
+      s.durationMs = joinDuration(h.value, m.value) * 60000;
+      save();
+      closeSheet();
+      render();
+      toast(s.durationMs > 0 ? `Length set to ${fmtDuration(s.durationMs)}` : 'Length removed');
+      break;
+    }
+
+    case 'clear-duration': {
+      const s = state.sessions.find((x) => x.id === id);
+      if (!s) return;
+      /* Zero reads as "not recorded" everywhere — the calendar hides it and
+         Time trained leaves it out rather than counting it as no time at all. */
+      s.durationMs = 0;
+      save();
+      closeSheet();
+      render();
+      toast('Length removed');
+      break;
+    }
+
     case 'dismiss-feedback-card':
       state.settings.feedbackCardSeen = true;
       save();
@@ -4891,6 +4977,17 @@ document.addEventListener('input', (ev) => {
 const SWIPE_REVEAL = 96;      /* must match .swipe-del width in styles.css */
 const SWIPE_START = 8;        /* px of travel before we claim the gesture */
 
+/**
+ * Drag past this and letting go deletes, without the second tap.
+ *
+ * Half the row, with a floor for narrow phones. Far enough that it can't
+ * happen while scrolling a list, and the row has turned fully red long before
+ * it counts — so nobody arrives at it by accident.
+ */
+function commitDistance(wrap) {
+  return Math.max(150, wrap.offsetWidth * 0.5);
+}
+
 let swipe = null;
 
 function closeSwipes(except) {
@@ -4898,7 +4995,17 @@ function closeSwipes(except) {
 }
 
 document.addEventListener('pointerdown', (ev) => {
-  const face = ev.target.closest && ev.target.closest('.swipe-face');
+  if (!ev.target.closest) { closeSwipes(); return; }
+
+  /* Delete sits *beside* the face, not inside it, so closest('.swipe-face') is
+     null when you press it — which the old code read as "tapped somewhere
+     else" and slid the row shut underneath the finger. By the time the click
+     resolved, the card had moved back over the button, so the click landed on
+     the card instead and nothing was deleted. That is the whole reason Delete
+     only worked sometimes. */
+  if (ev.target.closest('.swipe-del')) return;
+
+  const face = ev.target.closest('.swipe-face');
   if (!face) { closeSwipes(); return; }
 
   /* Buttons are excluded so a tap on the done-tick or Delete stays a tap.
@@ -4934,10 +5041,16 @@ document.addEventListener('pointermove', (ev) => {
     closeSwipes(swipe.wrap);
   }
 
-  /* Left only, and never past the width of the button being revealed. */
+  /* Left only. It can now travel well past the button, because a long swipe
+     deletes on its own — stopping dead at 96px was what made the gesture feel
+     like it had failed. */
+  const commit = commitDistance(swipe.wrap);
   const from = swipe.wrap.classList.contains('open') ? -SWIPE_REVEAL : 0;
-  swipe.dx = Math.max(-SWIPE_REVEAL, Math.min(0, from + dx));
+  swipe.dx = Math.max(-(commit + 40), Math.min(0, from + dx));
   swipe.card.style.transform = `translateX(${swipe.dx}px)`;
+  /* Turns the row fully red, so the point of no return is visible before it is
+     reached rather than explained afterwards. */
+  swipe.wrap.classList.toggle('will-delete', swipe.dx <= -commit);
 });
 
 function endSwipe() {
@@ -4948,6 +5061,17 @@ function endSwipe() {
 
   wrap.classList.remove('dragging');
   card.style.transform = '';
+
+  /* Dragged far enough: do the thing, rather than revealing a button that then
+     has to be found and hit. Routed through the button's own click so it runs
+     the same handler — and therefore offers the same Undo. */
+  if (dx <= -commitDistance(wrap)) {
+    const del = wrap.querySelector('.swipe-del');
+    wrap.classList.remove('will-delete', 'open');
+    if (del) { del.click(); return; }
+  }
+
+  wrap.classList.remove('will-delete');
   wrap.classList.toggle('open', dx < -SWIPE_REVEAL / 2);
 }
 

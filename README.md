@@ -276,6 +276,19 @@ change the set count before saving rather than only the name.
 
 ## The calendar
 
+### Fixing when, and how long
+
+Both are editable in the day view, and the second one was the gap. A live workout is timed from
+Start to Finish, so forgetting to press Finish files a three-hour session that was really fifty
+minutes — and the length sat there as plain text next to an editable time, which is backwards:
+forgetting to finish is far more common than mistyping the hour.
+
+The length is a control now, in two places. **Finishing a live workout says how long it thinks it
+took** — `Saved · 3h 0m` — with a **Fix length** action right there, which is the moment anyone
+would notice. And in the calendar the duration is a button next to the time. *"I don't know how
+long it took"* clears it to zero, which reads as *not recorded* everywhere: the calendar hides it
+and the Time trained tile leaves it out rather than averaging in a zero.
+
 Month view shows the whole month at a glance, with a coloured dot on every day you trained.
 Week view widens the cells so each workout shows by name. Either way, tapping a day opens that
 day's workouts underneath — exercises, sets, weights and the time you started.
@@ -1274,9 +1287,23 @@ hold into a lifting exercise would mix sets that aren't the same kind of thing.
 
 ## Removing an exercise mid-workout
 
-Swipe the exercise card **left** to reveal a red Delete, then tap it. There is no × in the card
-header any more: a tap target sitting next to the exercise name is far too easy to catch by accident
-with a phone in one hand between sets, and losing the sets you already logged is not a small mistake.
+Swipe the exercise card **left**. A short swipe reveals a red Delete to tap; **a long swipe deletes
+on release**, no second tap. Either way an Undo toast follows, which is what makes the fast path
+safe. There is no × in the card header: a tap target next to the exercise name is far too easy to
+catch by accident with a phone in one hand between sets.
+
+Two things were wrong with the first version.
+
+**Delete only worked sometimes.** The button sits *beside* the face, not inside it, so
+`closest('.swipe-face')` came back null on `pointerdown` — which the handler read as "tapped
+somewhere else" and closed the row underneath the finger. By the time the click resolved, the card
+had slid back over the button, so the click landed on the card. Whether it worked came down to
+whether you out-ran a 180ms CSS transition. `pointerdown` now ignores presses on `.swipe-del`.
+
+**The gesture stopped dead at 96px**, which reads as the swipe having failed rather than as an
+invitation to tap something. It now travels to half the row's width, and past that point the button
+fills the row so the point of no return is visible before it's reached — then letting go deletes.
+It fires the button's own click, so there's one delete path and one Undo, not two.
 
 The gesture is deliberately fussy about what counts as a swipe:
 

@@ -31,7 +31,7 @@ installed copy, so only the product name changed.
 - **When your training goes best** — not just when you turn up, but whether you lift more, do more cardio or train longer at one time of day. It only says so when the data can carry the claim.
 - **Dark and light themes** — deep plum throughout, or plum on warm off-white. Follows your phone's setting on first run; switch it any time in Settings.
 - **A walkthrough on first run** — a ten-step spotlight tour of the five tabs. Shows itself once; rerun it any time from Settings.
-- **Tells you what to aim for** — finished every set last time? It suggests the next weight. Dropped a rep? It says hold. Tap to fill it in.
+- **Tells you what to aim for** — finished every set last time? It suggests the next weight. Dropped a rep? It says hold, and says why. Tap to fill it in.
 - **Send a routine to anyone** — share it as plain text, straight into Messages or WhatsApp. They paste it in and get the whole routine: any phone, with or without Cadence, no account, nothing uploaded.
 - **It notices things** — a lift stuck for three sessions, a month back after a break, a run of weeks. One observation at a time, only when it is plainly true.
 - **Tap any exercise** for its full history and progress chart.
@@ -485,6 +485,31 @@ than the code:
 **A rise is only ever suggested when every set last time hit the same weight for the same reps.**
 Adding load on top of a set you did not finish is how people stall and conclude they have stopped
 progressing — so the honest answer most weeks is "hold", and the app says it.
+
+### Saying *why* it's holding
+
+The card prints a reason under the suggestion, and for a long time that reason was guessed from a
+single boolean: holding meant *"you dropped a rep last time"*, full stop. But holding has several
+causes, and only one of them is a dropped rep. Anyone who logs warm-up sets — 135, 185, 205, five
+reps on each — was told they'd dropped a rep every single session, having dropped nothing.
+
+`suggestNext()` now returns a `reason`, and the wording follows it:
+
+| `reason` | Shown | When |
+| --- | --- | --- |
+| `rise` | you finished every set | Every set identical |
+| `dropped` | you dropped a rep on the last set | Reps fell away at the end |
+| `reps` | your reps were not the same across sets | Reps varied, but built rather than faded |
+| `weight` | your sets were at different weights | Same reps throughout, different loads |
+| `mixed` | your sets varied last time | Both varied |
+
+The distinction between `dropped` and `reps` matters: starting at 6 and finishing at 8 is not a
+failed set, and shouldn't be reported as one.
+
+This also fixed a quieter bug underneath. Uniformity compared `Number(set.weight)`, and a set with
+no weight field at all produced `NaN` — which is never equal to itself. A clean set of chin-ups
+logged without a weight therefore reported that its sets were at different weights. An absent load
+now reads as zero.
 
 Steps are plate-sized and group-aware: 10 lb / 5 kg for legs and back, 5 lb / 2.5 kg for everything
 else. A lateral raise and a squat do not move in the same increments.

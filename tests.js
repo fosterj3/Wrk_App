@@ -1130,6 +1130,40 @@ describe('next-set suggestion', () => {
   check('bodyweight holds after a drop',
     suggestNext('lifting', sets(['', '10'], ['', '7']), 'Back', 'lb').hold);
 
+  /* The reason it's holding, which the card prints underneath. It used to be
+     inferred from `hold` alone, so every one of these said "you dropped a rep"
+     — including the warm-up ramp, where no rep was dropped at all. */
+  const why = (...pairs) => suggestNext('lifting', sets(...pairs), 'Chest', 'lb').reason;
+
+  eq('finishing everything earns the rise', why(['185', '8'], ['185', '8']), 'rise');
+  eq('fading on the last set is a dropped rep',
+    why(['185', '8'], ['185', '8'], ['185', '6']), 'dropped');
+  /* Same reps at every weight: a ramp up to a top set, not a failure. */
+  eq('a warm-up ramp is about the weight, not the reps',
+    why(['135', '5'], ['185', '5'], ['205', '5']), 'weight');
+  eq('a drop set is the same shape', why(['205', '5'], ['185', '5']), 'weight');
+  /* Starting light and finishing strong is not "you dropped a rep" either. */
+  eq('building reps is not a drop', why(['185', '6'], ['185', '8'], ['185', '8']), 'reps');
+  eq('both varying is reported as both', why(['135', '8'], ['185', '5']), 'mixed');
+
+  eq('bodyweight fading reads as a drop',
+    suggestNext('lifting', sets(['', '10'], ['', '10'], ['', '7']), 'Back', 'lb').reason, 'dropped');
+  eq('bodyweight building does not',
+    suggestNext('lifting', sets(['', '7'], ['', '10'], ['', '10']), 'Back', 'lb').reason, 'reps');
+  eq('clean bodyweight sets earn the rise',
+    suggestNext('lifting', sets(['', '10'], ['', '10']), 'Back', 'lb').reason, 'rise');
+
+  /* Regression: an absent weight became NaN, and NaN never equals itself — so
+     a clean set of chin-ups logged with no weight field at all reported that
+     its sets were at different weights. */
+  const noWeightKey = suggestNext('lifting', [{ reps: '10' }, { reps: '10' }], 'Back', 'lb');
+  eq('sets with no weight key at all still read as uniform', noWeightKey.reason, 'rise');
+
+  /* Every reason the suggester can return has a sentence to print. */
+  ['rise', 'dropped', 'reps', 'weight', 'mixed'].forEach((r) => {
+    check(`"${r}" has wording`, typeof SUGGEST_WHY[r] === 'string' && SUGGEST_WHY[r].length > 0);
+  });
+
   /* Silence is the right answer when there is nothing honest to say. */
   check('cardio gets no suggestion', suggestNext('cardio', [{ distance: '5', minutes: 30 }], 'Cardio', 'lb') === null);
   check('practice gets no suggestion', suggestNext('practice', [{ minutes: 45 }], 'Practice', 'lb') === null);

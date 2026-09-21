@@ -1397,9 +1397,11 @@ function renderEntry(entry, index, all) {
                   data-id="${entry.id}" data-weight="${esc(next.weight)}" data-reps="${esc(next.reps)}"
                   title="Fill every set with this">
             <span class="suggest-label">${esc(next.label)}</span>
-            <span class="suggest-why">${next.hold
-              ? 'you dropped a rep last time'
-              : 'you finished every set'}</span>
+            <!-- The reason comes from suggestNext rather than being guessed
+                 from the hold flag. Holding has several causes and this used to
+                 print "you dropped a rep" for all of them, including a warm-up
+                 ramp where every set hit its reps. -->
+            <span class="suggest-why">${esc(SUGGEST_WHY[next.reason] || '')}</span>
           </button>`;
       })()}` : ''}
 

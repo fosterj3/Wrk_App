@@ -530,7 +530,18 @@ function weightStep(group, units) {
  * Returns null when there is nothing honest to say — a first session, a
  * duration-based exercise, or numbers too patchy to read.
  *
- * @returns {{weight:string, reps:string, label:string, hold:boolean}|null}
+ * `reason` says *why*, because holding has several causes and they are not the
+ * same sentence. A ramp of 135/185/205 at five reps each is not a dropped rep,
+ * and telling somebody it was is both wrong and slightly insulting:
+ *
+ *   rise    every set identical, so go up
+ *   dropped reps fell away on the last set — the real "you dropped a rep"
+ *   reps    reps varied, but not by fading at the end
+ *   weight  same reps throughout, different weights (warm-ups, a drop set)
+ *   mixed   both varied
+ *
+ * @returns {{weight:string, reps:string, label:string, hold:boolean,
+ *   reason:string}|null}
  */
 function suggestNext(type, lastSets, group, units) {
   if (type !== 'lifting' || !Array.isArray(lastSets) || !lastSets.length) return null;
@@ -540,31 +551,62 @@ function suggestNext(type, lastSets, group, units) {
   if (sets.some((s) => !isFinite(s.r) || s.r <= 0)) return null;
   if (sets.some((s) => s.rawW !== '' && s.rawW != null && !isFinite(s.w))) return null;
 
+  /* An absent weight reads as 0 so bodyweight sets compare equal to each other.
+     Left as NaN, every set would differ from every other — including itself —
+     and a clean set of chin-ups would report varying weight. */
+  const load = (s) => (isFinite(s.w) ? s.w : 0);
+
   const bodyweight = sets.every((s) => s.rawW === '' || s.rawW == null || s.w === 0);
   const topReps = Math.max(...sets.map((s) => s.r));
-  const uniform = sets.every((s) => s.r === sets[0].r)
-    && sets.every((s) => s.w === sets[0].w);
+  const sameReps = sets.every((s) => s.r === sets[0].r);
+  const sameWeight = sets.every((s) => load(s) === load(sets[0]));
+
+  /* Fading at the end is a different story from starting light, even though
+     both are "the reps weren't all the same". */
+  const faded = !sameReps && sets[sets.length - 1].r < Math.min(...sets.slice(0, -1).map((s) => s.r));
 
   /* Nothing to load, so progress is one more rep rather than more weight. */
   if (bodyweight) {
-    if (!uniform) return { weight: '', reps: String(topReps), label: `Hold at ${topReps} reps`, hold: true };
-    return { weight: '', reps: String(sets[0].r + 1), label: `Try ${sets[0].r + 1} reps`, hold: false };
+    if (!sameReps) {
+      return {
+        weight: '', reps: String(topReps), label: `Hold at ${topReps} reps`,
+        hold: true, reason: faded ? 'dropped' : 'reps',
+      };
+    }
+    return {
+      weight: '', reps: String(sets[0].r + 1), label: `Try ${sets[0].r + 1} reps`,
+      hold: false, reason: 'rise',
+    };
   }
 
-  if (!uniform) {
-    const top = Math.max(...sets.map((s) => s.w));
+  if (!sameReps || !sameWeight) {
+    const top = Math.max(...sets.map(load));
     return {
       weight: String(top), reps: String(topReps),
-      label: `Hold ${top} ${units}`, hold: true,
+      label: `Hold ${top} ${units}`,
+      hold: true,
+      reason: !sameReps && !sameWeight ? 'mixed'
+        : sameReps ? 'weight'
+        : (faded ? 'dropped' : 'reps'),
     };
   }
 
   const next = Math.round((sets[0].w + weightStep(group, units)) * 10) / 10;
   return {
     weight: String(next), reps: String(sets[0].r),
-    label: `Try ${next} ${units} × ${sets[0].r}`, hold: false,
+    label: `Try ${next} ${units} × ${sets[0].r}`,
+    hold: false, reason: 'rise',
   };
 }
+
+/** The sentence under a suggestion. One per reason, all of them true. */
+const SUGGEST_WHY = {
+  rise: 'you finished every set',
+  dropped: 'you dropped a rep on the last set',
+  reps: 'your reps were not the same across sets',
+  weight: 'your sets were at different weights',
+  mixed: 'your sets varied last time',
+};
 
 /* Epley. Lets a 3x5 session be compared with a 3x10 one. */
 function e1rm(weight, reps) {

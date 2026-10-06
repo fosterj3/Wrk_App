@@ -159,6 +159,67 @@ function sameExercise(a, b) {
   return !!k && k === exerciseKey(b);
 }
 
+/* ------------------------------------------------------ variations of a lift
+
+   A second, weaker signal than exerciseKey. "Bench Press" and "Barbell Bench
+   Press" are not the same name by any spelling rule, so the merge check above
+   is right to leave them alone — but somebody typing the first while logging
+   the second gets a brand new exercise with no history, and no hint that the
+   history exists.
+
+   These two are never merged automatically. A barbell and a dumbbell bench
+   press are different lifts at different weights and deserve separate
+   histories; the point is only to say "you have these already" before a third
+   one is created by accident.                                               */
+
+/** The words of an exercise name, normalised and singularised. */
+function exerciseWords(name) {
+  return singularize(norm(name), 3).split(' ').filter(Boolean);
+}
+
+/**
+ * Is one of these the other plus qualifiers?
+ *
+ * "Bench Press" against "Barbell Bench Press", or "Squat" against "Front
+ * Squat". Word-level containment rather than string containment, so "Leg
+ * Press" and "Bench Press" stay unrelated — they share a word, not a movement.
+ */
+function isVariantOf(a, b) {
+  const wa = exerciseWords(a);
+  const wb = exerciseWords(b);
+  if (!wa.length || !wb.length) return false;
+  /* Same words in the same order is the same exercise, which exerciseKey
+     already covers; this is only about one name being broader than another. */
+  if (wa.join(' ') === wb.join(' ')) return false;
+  const short = wa.length <= wb.length ? wa : wb;
+  const long = short === wa ? wb : wa;
+  return short.every((w) => long.includes(w));
+}
+
+/** Everything in `list` that looks like a variation of `name`. */
+function relatedExercises(name, list) {
+  return (list || []).filter((e) => e && e.name && isVariantOf(name, e.name));
+}
+
+/**
+ * Cluster a list of names into families of variations.
+ *
+ * Takes the list in the order given — most-used first, from the caller — so
+ * the name a family is listed under is the one with the most behind it.
+ */
+function variantFamilies(names) {
+  const seen = new Set();
+  const out = [];
+  (names || []).forEach((name) => {
+    if (seen.has(name)) return;
+    const family = names.filter((other) => other === name || isVariantOf(name, other));
+    if (family.length < 2) return;
+    family.forEach((n) => seen.add(n));
+    out.push(family);
+  });
+  return out;
+}
+
 /**
  * Group a list of exercise names by what they'd merge into.
  * @returns {Array<string[]>} only the groups with more than one spelling,

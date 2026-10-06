@@ -1355,6 +1355,32 @@ All three use one key: lowercase, punctuation and spacing removed, trailing plur
 different movements at different difficulty, whose histories should stay apart. That's the same
 judgement the paste parser now makes when it keeps the name you wrote.
 
+### When a broad name shadows a specific one
+
+That key is deliberately narrow, and it has a blind spot: **`Bench Press` and `Barbell Bench Press`
+are not the same name by any spelling rule.** Reported from real use — a custom `Bench Press` was
+created while `Barbell Bench Press` held six sessions of history, and the exercise opened with
+nothing in it. Nothing looked broken. The history was just somewhere else.
+
+So there's a second, weaker signal: **word-level containment.** One name is a variation of another
+when every word of the shorter appears in the longer — `Bench Press` ⊂ `Barbell Bench Press`,
+`Squat` ⊂ `Front Squat`. Word-level and not string-level, so `Leg Press` and `Bench Press` stay
+unrelated; they share a word, not a movement.
+
+Variations are **never merged automatically**, and that restraint is the point. A barbell and a
+dumbbell bench press are different lifts at different weights and deserve separate histories —
+which is exactly why the app shows what's already there and lets you decide:
+
+- **Typing a broad name** opens *You already train this*, listing the variations you've logged
+  (with how many workouts each) above the built-in ones you haven't. Picking one joins the existing
+  history. *"No, it's its own exercise"* carries on as before.
+- **Settings → Exercise names** has a *Variations of the same movement* section for splits that
+  already happened, with the existing rename-onto-another-name flow to join them up.
+
+The two signals stay separate on purpose: the narrow one offers a **one-tap merge**, because
+`planks` and `Plank` can't be anything but the same thing. The loose one only ever **shows you the
+list**.
+
 A group whose spellings are recorded as different *types* is shown but not offered: merging a timed
 hold into a lifting exercise would mix sets that aren't the same kind of thing.
 

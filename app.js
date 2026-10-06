@@ -3474,6 +3474,12 @@ function openExerciseNames() {
   const rows = exerciseNameIndex();
   dupeGroups = duplicateSuggestions();
 
+  /* Names already flagged as outright duplicates are left out — one problem
+     per exercise, and the merge button above is the better answer for those. */
+  const flagged = new Set(dupeGroups.reduce((all, g) => all.concat(g.names), []));
+  const families = variantFamilies(rows.map((r) => r.name).filter((n) => !flagged.has(n)))
+    .map((names) => names.map((n) => rows.find((r) => r.name === n)).filter(Boolean));
+
   const dupeCard = (g, i) => `
     <div class="card dupe">
       <div class="card-title">${g.names.map((n) => `“${esc(n)}”`).join(' · ')}</div>
@@ -3497,8 +3503,26 @@ function openExerciseNames() {
 
     ${dupeGroups.length ? `
       <h3 class="small muted" style="margin:18px 0 8px">THESE LOOK LIKE THE SAME EXERCISE</h3>
-      ${dupeGroups.map(dupeCard).join('')}
-      <h3 class="small muted" style="margin:22px 0 8px">EVERYTHING</h3>` : ''}
+      ${dupeGroups.map(dupeCard).join('')}` : ''}
+
+    ${families.length ? `
+      <h3 class="small muted" style="margin:18px 0 8px">VARIATIONS OF THE SAME MOVEMENT</h3>
+      <p class="small muted" style="margin:0 0 10px">Often this is right — a barbell and a dumbbell
+        bench press are different lifts and deserve separate histories. But a broad name logged
+        alongside a specific one usually means a history got split in two. Tap one to rename it
+        onto another.</p>
+      ${families.map((family) => `
+        <div class="card dupe">
+          <div class="card-sub" style="margin-bottom:8px">${family.map((f) =>
+            `${esc(f.name)} <span class="muted">(${f.sessions
+              ? plural(f.sessions, 'workout') : 'routine only'})</span>`).join(' &middot; ')}</div>
+          ${family.map((f) => `
+            <button class="btn secondary" data-action="rename-exercise" data-name="${esc(f.name)}"
+                    style="margin:0 8px 8px 0">Rename ${esc(f.name)}</button>`).join('')}
+        </div>`).join('')}` : ''}
+
+    ${dupeGroups.length || families.length
+      ? '<h3 class="small muted" style="margin:22px 0 8px">EVERYTHING</h3>' : ''}
 
     ${rows.length ? rows.map((r) => `
       <button class="pick" data-action="rename-exercise" data-name="${esc(r.name)}">
@@ -3929,6 +3953,64 @@ function renderQuickAdd(text, onPickAction, contextId) {
       </div>
       <span class="pill ${item.type}">${item.type}</span>
     </button>`;
+}
+
+/**
+ * "Which bench press did you mean?"
+ *
+ * A broad name shadowing a specific one is the quiet version of this problem:
+ * nothing looks wrong, you just open the exercise and your history is gone.
+ * The variations are offered rather than merged, because a barbell and a
+ * dumbbell bench press really are different lifts at different weights — the
+ * app's job is to show what's already there, not to decide.
+ *
+ * @returns {boolean} true when it took over the screen.
+ */
+function offerVariants(name, pick, contextId) {
+  const known = knownExercises();
+  const logged = relatedExercises(name, known)
+    .filter((e) => (e.sessions || 0) + (e.routines || 0) > 0);
+  const built = relatedExercises(name, known)
+    .filter((e) => !((e.sessions || 0) + (e.routines || 0) > 0));
+
+  /* Yours first and always shown; the built-in list is a long tail and only
+     worth a few, or typing "curl" fills the screen with curls. */
+  const offer = logged.concat(built.slice(0, Math.max(0, 5 - logged.length)));
+  if (!offer.length) return false;
+
+  const row = (e) => {
+    const n = (e.sessions || 0) + (e.routines || 0);
+    const sub = e.sessions
+      ? `${plural(e.sessions, 'workout')} logged`
+      : (e.routines ? `in ${plural(e.routines, 'routine')}` : 'built in, not used yet');
+    return `
+      <button class="pick" data-action="${esc(pick || '')}" data-ctx="${esc(contextId || '')}"
+              data-name="${esc(e.name)}" data-type="${esc(e.type)}">
+        <div class="grow">
+          <div class="nm">${esc(e.name)}</div>
+          <div class="card-sub">${esc(sub)}</div>
+        </div>
+        <span class="pill ${esc(e.type)}">${esc(e.type)}</span>
+      </button>`;
+  };
+
+  const anyLogged = logged.length > 0;
+  openSheet(anyLogged ? 'You already train this' : 'Which one did you mean?', `
+    <p class="small muted" style="margin-top:0">${anyLogged
+      ? `<strong>${esc(name)}</strong> is broader than what you've been logging. Pick the one you
+         actually did and it joins the history that's already there — a new name starts from
+         nothing, with no "last time" and no progress chart.`
+      : `There are more specific versions of <strong>${esc(name)}</strong>. Picking one keeps
+         the weights comparable later on.`}</p>
+
+    ${offer.map(row).join('')}
+
+    <button class="linkish" data-action="add-custom-anyway" style="margin-top:12px"
+            data-name="${esc(name)}" data-pick="${esc(pick || '')}"
+            data-ctx="${esc(contextId || '')}">
+      No, "${esc(name)}" is its own exercise
+    </button>`);
+  return true;
 }
 
 /** How should this be recorded? Asked only for a name the app hasn't seen. */
@@ -4395,6 +4477,12 @@ document.addEventListener('click', (ev) => {
         chooseExercise(btn.dataset.pick, btn.dataset.ctx, existing.name, existing.type);
         break;
       }
+
+      /* "Bench Press" when the log says "Barbell Bench Press". Not the same
+         name by any spelling rule, so the check above is right to miss it —
+         but it is almost certainly the same movement, and creating a third
+         one silently is how somebody ends up with no history. */
+      if (offerVariants(name, btn.dataset.pick, btn.dataset.ctx)) break;
 
       askCustomType(name, btn.dataset.pick, btn.dataset.ctx);
       break;

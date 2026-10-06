@@ -1009,6 +1009,44 @@ describe('spotting the same exercise written differently', () => {
   check('two blanks are not a match', !sameExercise('', ''));
   check('a blank matches nothing', !sameExercise('', 'Plank'));
 
+  /* A broader name shadowing a specific one. Reported in a real session: a
+     custom "Bench Press" was created while "Barbell Bench Press" held the
+     history, and the exercise opened with nothing in it. Not the same name by
+     any spelling rule, so the merge check above is right to miss it. */
+  check('a broad name is a variant of a specific one',
+    isVariantOf('Bench Press', 'Barbell Bench Press'));
+  check('...in either direction', isVariantOf('Barbell Bench Press', 'Bench Press'));
+  check('one word is enough when it is the movement',
+    isVariantOf('Squat', 'Front Squat'));
+  check('qualifiers on both sides still relate',
+    isVariantOf('Bench Press', 'Dumbbell Bench Press'));
+
+  /* Word-level containment, not string containment. These share a word, not a
+     movement, and merging them would be a worse bug than the one being fixed. */
+  check('a shared word is not a shared movement', !isVariantOf('Leg Press', 'Bench Press'));
+  check('...nor across machines', !isVariantOf('Chest Press Machine', 'Leg Press'));
+  check('different grips stay different', !isVariantOf('Pull-Up', 'Chin-Up'));
+  check('the same name is not its own variant',
+    !isVariantOf('Bench Press', 'bench press'));
+  check('nothing is not a variant', !isVariantOf('', 'Bench Press'));
+
+  eq('variants are found in a list',
+    relatedExercises('Bench Press', [
+      { name: 'Barbell Bench Press' }, { name: 'Dumbbell Bench Press' },
+      { name: 'Leg Press' }, { name: 'Overhead Press' },
+    ]).map((e) => e.name),
+    ['Barbell Bench Press', 'Dumbbell Bench Press']);
+
+  /* Families are listed under the name with the most behind it, because the
+     caller hands them over most-used first. */
+  eq('a family clusters together',
+    variantFamilies(['Barbell Bench Press', 'Bench Press', 'Deadlift']),
+    [['Barbell Bench Press', 'Bench Press']]);
+  eq('unrelated names make no family',
+    variantFamilies(['Deadlift', 'Leg Press', 'Barbell Curl']), []);
+  eq('an empty list is fine', variantFamilies([]), []);
+  eq('a null list is fine', variantFamilies(null), []);
+
   /* The grouping keeps input order, which is how the caller knows which
      spelling to merge into: the list arrives most-used first. */
   eq('duplicates group together',

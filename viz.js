@@ -613,6 +613,155 @@ function e1rm(weight, reps) {
   return reps > 0 ? weight * (1 + reps / 30) : weight;
 }
 
+/* ------------------------------------------------- strength by muscle group
+
+   The question people actually have is "where am I lagging", and the honest
+   answer is narrower than it sounds. Absolute strength cannot be compared
+   across exercises: a 300lb leg press and a 40lb lateral raise say nothing
+   about which muscle is behind, and saying otherwise would need population
+   tables this app does not have and could not verify.
+
+   What *is* comparable is each exercise against its own past. A percentage
+   change is unitless, so a leg press and a lateral raise land on the same
+   scale — and averaging those percentages across a muscle group gives a real
+   answer to "where am I gaining, and where have I stalled".                */
+
+/**
+ * The best comparable number for one exercise in one session.
+ *
+ * Loaded work is measured by estimated 1RM, which is what makes reps going up
+ * at the same weight count as progress. Bodyweight work has no load to track,
+ * so it is measured in reps — otherwise pull-ups would look like no progress
+ * forever, and for a lot of people that is most of their back work.
+ *
+ * @returns {{value:number, mode:'load'|'reps'}|null}
+ */
+function sessionBest(entry) {
+  let bestLoad = 0;
+  let bestReps = 0;
+
+  (entry.sets || []).forEach((s) => {
+    const r = Number(s.reps);
+    if (!isFinite(r) || r <= 0) return;
+    if (r > bestReps) bestReps = r;
+
+    const w = Number(s.weight);
+    if (s.weight === '' || s.weight == null || !isFinite(w) || w <= 0) return;
+    const v = e1rm(w, r);
+    if (v > bestLoad) bestLoad = v;
+  });
+
+  if (bestLoad > 0) return { value: bestLoad, mode: 'load' };
+  if (bestReps > 0) return { value: bestReps, mode: 'reps' };
+  return null;
+}
+
+/**
+ * Progress per muscle group across a window of sessions.
+ *
+ * @returns {{groups: Array, ungroupedSets: number}} — each group carries `pct`
+ *   (null when nothing in it can be compared yet), `sets`, and `compared`, the
+ *   number of exercises the percentage actually rests on.
+ */
+function groupStrength(sessions) {
+  const byExercise = new Map();
+  let ungroupedSets = 0;
+
+  [...(sessions || [])]
+    .sort((a, b) => +new Date(a.date) - +new Date(b.date))
+    .forEach((s) => {
+      (s.entries || []).forEach((e) => {
+        if (e.type !== 'lifting') return;
+        const count = (e.sets || []).length;
+        const lib = matchLibraryExact(e.name);
+        /* An exercise you invented has no muscle group attached, so it can't
+           join a group average. Counted and reported rather than ignored. */
+        if (!lib || !lib.group) { ungroupedSets += count; return; }
+
+        let rec = byExercise.get(e.name);
+        if (!rec) {
+          rec = { name: e.name, group: lib.group, sets: 0, seen: 0, first: null, last: null };
+          byExercise.set(e.name, rec);
+        }
+        rec.sets += count;
+
+        const best = sessionBest(e);
+        if (!best) return;
+        rec.seen++;
+        if (!rec.first) rec.first = best;
+        rec.last = best;
+      });
+    });
+
+  const groups = new Map();
+  byExercise.forEach((rec) => {
+    if (!groups.has(rec.group)) {
+      groups.set(rec.group, {
+        group: rec.group, sets: 0, exercises: 0, compared: 0, points: 0, sum: 0,
+      });
+    }
+    const g = groups.get(rec.group);
+    g.sets += rec.sets;
+    g.exercises++;
+
+    /* Needs two sessions of the same kind of measurement. An exercise that
+       went from bodyweight to loaded would otherwise read as a huge gain when
+       all that changed is what was being counted. */
+    if (rec.seen >= 2 && rec.first && rec.last
+        && rec.first.mode === rec.last.mode && rec.first.value > 0) {
+      g.sum += ((rec.last.value - rec.first.value) / rec.first.value) * 100;
+      g.compared++;
+      /* Sessions behind the number, which is the thing worth being strict
+         about. Two different exercises done twice each is no more evidence
+         than one exercise done four times, and plenty of people train one
+         main lift per muscle group. */
+      g.points += rec.seen;
+    }
+  });
+
+  const out = [...groups.values()].map((g) => ({
+    group: g.group,
+    sets: g.sets,
+    exercises: g.exercises,
+    compared: g.compared,
+    points: g.points,
+    pct: g.compared ? Math.round(g.sum / g.compared) : null,
+  }));
+
+  /* Comparable groups first, best to worst; the rest ranked by how much work
+     went into them, since that's all there is to say about them yet. */
+  out.sort((a, b) => {
+    if (a.pct == null && b.pct == null) return b.sets - a.sets;
+    if (a.pct == null) return 1;
+    if (b.pct == null) return -1;
+    return b.pct - a.pct;
+  });
+
+  return { groups: out, ungroupedSets };
+}
+
+/**
+ * The sentence to put under the chart, or nothing.
+ *
+ * Same discipline as the time-of-day verdict: two groups with something real
+ * behind them, and a gap wide enough to be worth acting on. "Your back is
+ * lagging" off one session of rows is a guess with a number attached.
+ */
+function groupVerdict(groups, minPoints) {
+  /* Four readings: one exercise done four times, or two done twice. Below that
+     a percentage is one good day away from reversing. */
+  const min = minPoints || 4;
+  const ranked = (groups || []).filter((g) => g.pct != null && (g.points || 0) >= min);
+  if (ranked.length < 2) {
+    const thin = (groups || []).filter((g) => g.pct != null).length;
+    return { need: Math.max(1, 2 - thin) };
+  }
+  const best = ranked[0];
+  const worst = ranked[ranked.length - 1];
+  if (best.pct - worst.pct < 5) return { flat: true };
+  return { best, worst };
+}
+
 function exerciseSeries(sessions, name, metric) {
   const points = [];
   [...sessions].reverse().forEach((s) => {
@@ -966,6 +1115,43 @@ function barRows(items, fmtValue) {
   }).join('');
 
   return `<svg class="viz" viewBox="0 0 ${W} ${h}" role="img" aria-label="Ranked bars">${rows}</svg>`;
+}
+
+/**
+ * Bars either side of a baseline, for a signed change.
+ *
+ * A left-anchored bar can't show a loss — it would draw -8% and +8% identically
+ * and let the label carry the difference, which is exactly the kind of chart
+ * that gets misread at a glance.
+ */
+function divergingRows(items, fmtValue) {
+  if (!items.length) return '';
+  const rowH = 30;
+  const h = items.length * rowH + 20;
+  const labelW = 86;
+  const trackW = W - labelW - 54;
+  const mid = labelW + trackW / 2;
+  const span = Math.max(1, ...items.map((i) => Math.abs(i.value)));
+
+  const rows = items.map((it, i) => {
+    const y = i * rowH + 4;
+    const len = Math.max((Math.abs(it.value) / span) * (trackW / 2), 2);
+    const down = it.value < 0;
+    const x = down ? mid - len : mid;
+    /* The value sits on the outside of its own bar, so it never covers it. */
+    const tx = down ? x - 6 : x + len + 6;
+    return `
+      <text class="viz-rowlabel" x="0" y="${y + 19}">${esc(it.label)}</text>
+      <path class="viz-bar ${down ? 'viz-bar-down' : ''}" d="${rowPath(x, y + 7, len, 16, 4)}"/>
+      <text class="viz-rowvalue ${down ? 'viz-rowvalue-down' : ''}" x="${tx}" y="${y + 19}"
+            text-anchor="${down ? 'end' : 'start'}">${esc(fmtValue(it.value))}</text>
+      <rect class="viz-hit" x="0" y="${y}" width="${W}" height="${rowH}" data-tip="${esc(it.tip)}"/>`;
+  }).join('');
+
+  return `<svg class="viz" viewBox="0 0 ${W} ${h}" role="img" aria-label="Change by muscle group">
+    ${rows}
+    <line class="viz-grid" x1="${mid}" y1="2" x2="${mid}" y2="${items.length * rowH + 4}"/>
+  </svg>`;
 }
 
 /**

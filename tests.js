@@ -167,6 +167,31 @@ describe('exercise library', () => {
     `bad: ${LIBRARY.filter((e) => !EXERCISE_TYPES.includes(e.type)).map((e) => e.name)}`);
   check('the library covers practice', LIBRARY.some((e) => e.type === 'practice'));
   check('every entry has a group', LIBRARY.every((e) => !!e.group));
+
+  /* The matcher has to hand the group back, not just the name. It used to drop
+     it, so every caller asking "which muscle is this?" got undefined — which
+     quietly gave big lifts the small weight step, and left muscle-group
+     progress with nothing to group by. */
+  eq('a matched exercise knows its muscle group',
+    matchLibraryExact('Barbell Back Squat').group, 'Legs');
+  eq('...through an alias too', matchLibraryExact('bench').group, 'Chest');
+  check('every library name resolves to its own group',
+    LIBRARY.every((e) => {
+      const hit = matchLibraryExact(e.name);
+      return hit && hit.group === e.group;
+    }),
+    LIBRARY.filter((e) => {
+      const hit = matchLibraryExact(e.name);
+      return !hit || hit.group !== e.group;
+    }).map((e) => e.name).join(', '));
+
+  /* The gap the feedback named. */
+  eq('incline bench press resolves to the barbell entry',
+    matchLibraryExact('incline bench press').name, 'Incline Barbell Bench Press');
+  eq('and the dumbbell one is still its own exercise',
+    matchLibraryExact('incline dumbbell press').name, 'Incline Dumbbell Press');
+  eq('a chin-up is no longer folded into a pull-up',
+    matchLibraryExact('chin up').name, 'Chin-Up');
 });
 
 /* ---------------------------------------------------------------- parsing */
@@ -1170,6 +1195,108 @@ describe('next-set suggestion', () => {
   check('a set with no reps gets none', suggestNext('lifting', sets(['185', '']), 'Chest', 'lb') === null);
   check('no history gets none', suggestNext('lifting', [], 'Chest', 'lb') === null);
   check('junk gets none', suggestNext('lifting', sets(['abc', '8']), 'Chest', 'lb') === null);
+});
+
+/* ------------------------------------------------ strength by muscle group */
+
+describe('where you are gaining', () => {
+  /* Sessions are given oldest-first here and the function sorts them itself. */
+  const day = (n, entries) => ({
+    id: uid(), name: 'W', durationMs: 0,
+    date: new Date(2026, 8, n, 9, 0).toISOString(),
+    entries: entries.map((e) => ({ id: uid(), ...e })),
+  });
+  const lift = (name, weight, reps) => ({
+    name, type: 'lifting', sets: [{ weight: String(weight), reps: String(reps) }],
+  });
+
+  /* A percentage is unitless, which is the whole trick: a 300lb leg press and
+     a 40lb lateral raise can sit in one list. */
+  const out = groupStrength([
+    day(1, [lift('Barbell Bench Press', 100, 5), lift('Leg Press', 300, 10)]),
+    day(8, [lift('Barbell Bench Press', 110, 5), lift('Leg Press', 303, 10)]),
+  ]);
+  const byName = (g) => out.groups.find((x) => x.group === g);
+
+  eq('each muscle group is reported once', out.groups.map((g) => g.group).sort(), ['Chest', 'Legs']);
+  eq('a ten percent rise reads as ten percent', byName('Chest').pct, 10);
+  eq('a small rise on a big number stays small', byName('Legs').pct, 1);
+  eq('the comparison says what it rests on', byName('Chest').compared, 1);
+
+  /* Reps going up at the same weight is progress, and this is the metric that
+     says so — which is why estimated 1RM is used rather than top weight. */
+  const reps = groupStrength([
+    day(1, [lift('Barbell Bench Press', 100, 5)]),
+    day(8, [lift('Barbell Bench Press', 100, 10)]),
+  ]);
+  check('more reps at the same weight counts as progress',
+    reps.groups[0].pct > 0, JSON.stringify(reps.groups[0]));
+
+  /* Bodyweight work has no load to track. Measured in reps instead, or every
+     back day built on pull-ups would read as no progress forever. */
+  const bw = groupStrength([
+    day(1, [{ name: 'Pull-Up', type: 'lifting', sets: [{ weight: '', reps: '5' }] }]),
+    day(8, [{ name: 'Pull-Up', type: 'lifting', sets: [{ weight: '', reps: '8' }] }]),
+  ]);
+  eq('bodyweight progress is counted in reps', bw.groups[0].pct, 60);
+
+  /* Switching from bodyweight to loaded changes what is being counted, not
+     how strong anybody got. */
+  const switched = groupStrength([
+    day(1, [{ name: 'Pull-Up', type: 'lifting', sets: [{ weight: '', reps: '8' }] }]),
+    day(8, [{ name: 'Pull-Up', type: 'lifting', sets: [{ weight: '25', reps: '8' }] }]),
+  ]);
+  eq('changing the measurement is not progress', switched.groups[0].pct, null);
+  eq('...but the work still counts', switched.groups[0].sets, 2);
+
+  /* One session is a reading, not a trend. */
+  const once = groupStrength([day(1, [lift('Barbell Bench Press', 100, 5)])]);
+  eq('a single session has no change to show', once.groups[0].pct, null);
+
+  /* An exercise you invented carries no muscle group, so it is reported
+     rather than silently dropped. */
+  const custom = groupStrength([
+    day(1, [{ name: 'Zercher Carry', type: 'lifting', sets: [{ weight: '100', reps: '5' }] }]),
+  ]);
+  eq('ungrouped work is counted separately', custom.ungroupedSets, 1);
+  eq('and makes no group of its own', custom.groups.length, 0);
+
+  eq('an empty log is empty', groupStrength([]).groups, []);
+  eq('null is survivable', groupStrength(null).groups, []);
+
+  /* The sentence underneath, held to the same standard as the other one: two
+     groups with something real behind them, and a gap worth acting on. */
+  const g = (group, pct, points) => ({ group, pct, points, sets: 20, exercises: 1, compared: 1 });
+
+  const spread = [g('Chest', 12, 8), g('Back', 1, 8)];
+  eq('a real gap gets named', groupVerdict(spread).best.group, 'Chest');
+  eq('...and so does the laggard', groupVerdict(spread).worst.group, 'Back');
+
+  check('two points apart is not a gap',
+    groupVerdict([g('Chest', 6, 8), g('Back', 4, 8)]).flat === true);
+
+  /* Evidence is counted in sessions, not in how many different exercises were
+     used — one main lift per muscle group is how a lot of people train. */
+  check('one exercise with enough history can still carry it',
+    groupVerdict([g('Chest', 12, 6), g('Back', 1, 6)]).best !== undefined);
+  check('two sessions a side cannot',
+    groupVerdict([g('Chest', 12, 2), g('Back', 1, 2)]).need !== undefined);
+  check('nothing at all says nothing', groupVerdict([]).need !== undefined);
+
+  /* The real path, end to end: eight weeks of bench climbing and rows flat. */
+  const weeks = [];
+  for (let w = 0; w < 8; w++) {
+    weeks.push(day(w + 1, [
+      lift('Barbell Bench Press', 135 + w * 5, 5),
+      lift('Barbell Row', 135, 8),
+    ]));
+  }
+  const real = groupStrength(weeks);
+  const verdict = groupVerdict(real.groups);
+  eq('the climbing group is named first', verdict.best.group, 'Chest');
+  eq('and the flat one last', verdict.worst.group, 'Back');
+  eq('rows that never moved read as zero',
+    real.groups.find((x) => x.group === 'Back').pct, 0);
 });
 
 /* ---------------------------------------------------------- time of day */

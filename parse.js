@@ -76,8 +76,19 @@ const ALIASES = {
   'deads': 'deadlift',
   'pullup': 'pull up',
   'pullups': 'pull up',
-  'chin up': 'pull up',
-  'chinups': 'pull up',
+  /* A chin-up is its own entry now, so these stop being folded into Pull-Up —
+     different grip, different exercise, and someone logging both wants two
+     histories rather than one blurred one. */
+  'chinup': 'chin up',
+  'chinups': 'chin up',
+  /* The barbell incline is what people mean by "incline bench"; the name in the
+     library has to say "barbell" to sit beside the dumbbell version. */
+  'incline bench': 'incline barbell bench press',
+  'incline bench press': 'incline barbell bench press',
+  'incline barbell press': 'incline barbell bench press',
+  'close grip bench': 'close grip bench press',
+  'shrug': 'barbell shrug',
+  'shrugs': 'barbell shrug',
   'pushup': 'push up',
   'pushups': 'push up',
   'press up': 'push up',
@@ -121,7 +132,13 @@ let libIndexCache = null;
 function libraryIndex() {
   if (!libIndexCache) {
     const lib = (typeof LIBRARY === 'undefined') ? [] : LIBRARY;
-    libIndexCache = lib.map((e) => ({ name: e.name, type: e.type, key: norm(e.name) }));
+    /* `group` has to travel with the entry. It was dropped here, so every
+       caller that asked a matched exercise which muscle it trains got
+       undefined — which silently gave squats and deadlifts the small weight
+       step instead of the big one, for as long as that feature has existed. */
+    libIndexCache = lib.map((e) => ({
+      name: e.name, type: e.type, group: e.group, key: norm(e.name),
+    }));
   }
   return libIndexCache;
 }

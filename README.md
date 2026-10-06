@@ -28,6 +28,7 @@ installed copy, so only the product name changed.
 - **Calendar** — month and week views showing which days you trained, colour-coded by lifting, cardio, practice or a mix. Tap any day to see, add or delete a workout — and set the time you actually trained, not when you got round to logging it.
 - **Bodyweight** — log your weight, see a 7-day rolling average against a goal.
 - **Data** — charts for how often you train, when of day you train, what kind, your strength progression per exercise, weekly volume and cardio, and your most-trained lifts. Every stat tile opens onto the working behind it.
+- **Where you're gaining** — progress per muscle group, normalised so a leg press and a lateral raise can sit in one list. It names the group that's moving slowest, when there's enough behind the number to say so.
 - **When your training goes best** — not just when you turn up, but whether you lift more, do more cardio or train longer at one time of day. It only says so when the data can carry the claim.
 - **Dark and light themes** — deep plum throughout, or plum on warm off-white. Follows your phone's setting on first run; switch it any time in Settings.
 - **A walkthrough on first run** — a ten-step spotlight tour of the five tabs. Shows itself once; rerun it any time from Settings.
@@ -219,6 +220,12 @@ Supersets, cross-device sync, friends, notifications, an AI coach chat, and nutr
 
 ## What the paste parser understands
 
+The same parser is reachable mid-workout. **+ Add exercise** → type the whole thing into the search
+box — `3 sets of incline dumbbell press, 50 lbs x 10` — and it offers the exercise with its sets
+already filled in. It only appears once you type a number; without one, the list below already
+answers it. For anyone who picks exercises off whatever machine is free rather than following a
+routine, that is the whole logging flow.
+
 Routines tab → **Paste from notes**. It reads the common ways people write workouts down:
 
 | You wrote | It reads |
@@ -275,6 +282,47 @@ Rule 3 is a guess, and `8 x 10` is genuinely ambiguous. That's the reason the pr
 change the set count before saving rather than only the name.
 
 ## The calendar
+
+## Where you're gaining
+
+The question people ask is *"where am I strong and where am I lagging"*, and the honest answer is
+narrower than the question. **Absolute strength does not compare across exercises** — a 300lb leg
+press and a 40lb lateral raise say nothing about which muscle is behind — and claiming otherwise
+would need population strength tables this app does not have and could not verify.
+
+What *is* comparable is each exercise against its own past. A percentage change is unitless, so a
+machine and a dumbbell land on the same scale, and averaging those percentages across a muscle
+group answers the useful half of the question: **where are you gaining, and where have you
+stalled.** The card says so in as many words, rather than letting the chart imply more than it
+knows.
+
+Two details carry it:
+
+- **Loaded work is measured by estimated 1RM**, which is what makes reps going up at the same
+  weight count as progress rather than as a flat line.
+- **Bodyweight work is measured in reps**, because there is no load to track. Without that, anyone
+  whose back work is pull-ups would read as having made no progress, ever.
+
+An exercise that moved *between* those two — bodyweight one month, loaded the next — is excluded
+from the percentage and counted only in its set total. What changed there is the measurement, not
+the person.
+
+The sentence underneath holds to the same standard as the time-of-day verdict: two groups, a gap of
+at least 5 percentage points, and **at least four sessions** behind each number. Evidence is counted
+in sessions rather than in how many different exercises were used — one main lift per muscle group
+is how a lot of people train, and two exercises done twice each is no more evidence than one done
+four times.
+
+Exercises you named yourself carry no muscle group, so their sets are reported as uncounted rather
+than quietly dropped.
+
+### A bug this surfaced
+
+`matchLibraryExact()` built its index as `{ name, type, key }` and **dropped `group`**. So every
+caller asking a matched exercise which muscle it trains got `undefined` — which meant
+`suggestNext()` had been giving squats and deadlifts the small weight step (+5lb) instead of the
+big one (+10lb) for as long as that feature has existed. The unit tests passed a group in directly,
+so they never saw it; the bug lived in what the caller could actually supply.
 
 ### Fixing when, and how long
 

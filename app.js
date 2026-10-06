@@ -2448,6 +2448,12 @@ function renderDayDetail(key, sessions) {
                 <!-- The time is the control. Logging a Tuesday morning session
                      on Tuesday afternoon parked it at midday, and there was no
                      way to correct it; a native time picker is one tap. -->
+                <!-- Date as well as time. Writing a week's workouts up on a
+                     Sunday means getting the day wrong sometimes, and until
+                     now the only fix was to delete it and log it again. -->
+                <input class="time-edit" type="date" value="${dayKey(s.date)}"
+                       data-session-date="${s.id}"
+                       aria-label="Date of ${esc(s.name)}" title="Move this to another day">
                 <input class="time-edit${hasRealTime(s) ? '' : ' unset'}" type="time" value="${hhmm}"
                        data-session-time="${s.id}"
                        aria-label="Time of ${esc(s.name)}"
@@ -2696,6 +2702,8 @@ function renderData() {
       </div>
     </div>` : ''}
 
+    ${groupCard(inRange)}
+
     ${tracked.length ? `
     <div class="card">
       <div class="card-title">Strength progress</div>
@@ -2746,6 +2754,69 @@ function renderData() {
     <button class="btn block secondary" data-action="share-week" style="margin-top:14px">
       Share this week
     </button>`;
+}
+
+/**
+ * Where you're gaining, by muscle group.
+ *
+ * The honest version of "where am I strong vs lagging". Absolute strength
+ * doesn't compare across exercises — a 300lb leg press and a 40lb lateral
+ * raise say nothing about which muscle is behind — so this compares each
+ * exercise against its own past and averages those percentages. A percentage
+ * is unitless, which is what lets a machine and a dumbbell sit in one list.
+ */
+function groupCard(inRange) {
+  const { groups, ungroupedSets } = groupStrength(inRange);
+  const movable = groups.filter((g) => g.pct != null);
+  const waiting = groups.filter((g) => g.pct == null);
+  if (!groups.length) return '';
+
+  const bars = movable.map((g) => ({
+    label: g.group,
+    value: g.pct,
+    tip: `${g.group}\n${g.pct > 0 ? '+' : ''}${g.pct}% across ${plural(g.compared, 'exercise')}`
+      + `\n${plural(g.sets, 'set')} logged`,
+  }));
+
+  const v = groupVerdict(groups);
+  let verdict = '';
+  if (v && v.best) {
+    verdict = `<div class="verdict">
+      <strong>${esc(v.best.group)} is moving fastest</strong> — up ${v.best.pct}% while
+      ${esc(v.worst.group)} ${v.worst.pct < 0 ? `fell ${Math.abs(v.worst.pct)}%` : `gained ${v.worst.pct}%`}.
+      <span class="muted">If you want somewhere to put more work, that's the gap.</span>
+    </div>`;
+  } else if (v && v.flat) {
+    verdict = `<p class="small muted" style="margin:10px 0 0">Everything is moving at much the
+      same rate — nothing is obviously being left behind.</p>`;
+  }
+
+  return `
+    <div class="card">
+      <div class="card-title">Where you're gaining</div>
+      <div class="card-sub">Change per exercise since the start of this window, averaged by muscle group</div>
+
+      ${bars.length
+        ? divergingRows(bars, (n) => `${n > 0 ? '+' : ''}${n}%`)
+        : '<p class="small muted" style="margin:10px 0 0">Nothing has been logged twice yet in this window, so there is no change to measure. Repeat an exercise and it appears.</p>'}
+
+      ${verdict}
+
+      ${waiting.length ? `<p class="small muted" style="margin:10px 0 0">
+        ${esc(waiting.map((g) => g.group).join(', '))} ${waiting.length === 1 ? 'has' : 'have'}
+        work logged but nothing repeated yet, so ${waiting.length === 1 ? 'it is' : 'they are'}
+        left out rather than shown as zero.</p>` : ''}
+
+      ${ungroupedSets ? `<p class="small muted" style="margin:8px 0 0">
+        ${plural(ungroupedSets, 'set')} of exercises you named yourself aren't counted here —
+        only the built-in ones carry a muscle group.</p>` : ''}
+
+      <p class="small muted" style="margin:10px 0 0">
+        This measures <strong>progress, not strength</strong>. Comparing how much you lift on
+        two different machines would need population tables this app doesn't have, so it compares
+        each exercise with its own past instead — which is the part that's actually true.
+      </p>
+    </div>`;
 }
 
 /* Bodyweight. The plan builder's first goal is "lose weight", so the app has to
@@ -3797,25 +3868,67 @@ function knownExercises() {
   return mine.concat(LIBRARY.filter((e) => !seen.has(e.name)));
 }
 
-/** Put a chosen exercise wherever the picker was opened from. */
-function chooseExercise(pick, contextId, name, type) {
+/**
+ * Put a chosen exercise wherever the picker was opened from.
+ *
+ * `template` carries sets already filled in — what the quick-add builds out of
+ * a typed line. Without one it's a bare exercise with a single empty set.
+ */
+function chooseExercise(pick, contextId, name, type, template) {
   if (!name) return;
   const t = EXERCISE_TYPES.includes(type) ? type : 'lifting';
+  const item = { ...(template || { sets: [{}] }), name, type: t };
 
   if (pick === 'pick-into-routine') {
     const r = state.routines.find((x) => x.id === contextId);
     if (!r) return;
-    r.items.push({ name, type: t, sets: [{}] });
+    r.items.push(item);
     save();
     editRoutine(r.id);
     return;
   }
 
   if (!state.active) return;
-  state.active.entries.push(makeEntry({ name, type: t }));
+  state.active.entries.push(makeEntry(item));
   save();
   closeSheet();
   render();
+}
+
+/* What the typed line parsed to, held between keystroke and tap. */
+let quickAddDraft = null;
+
+/**
+ * Read a whole set straight out of the search box.
+ *
+ * "3 sets of incline dumbbell press, 50 lbs x 10" is how a lot of people think
+ * about a set, and the paste parser already understood it — it was just only
+ * reachable from the Routines tab, which is no use to somebody picking
+ * exercises off whatever machine is free. Same parser, offered mid-workout.
+ */
+function renderQuickAdd(text, onPickAction, contextId) {
+  const box = $('#ex-quick');
+  if (!box) return;
+  quickAddDraft = null;
+
+  const q = String(text || '').trim();
+  /* Only when there are numbers to read. Without them the list below already
+     answers it, and a second way to add "Bench Press" is just noise. */
+  if (!q || !/\d/.test(q)) { box.innerHTML = ''; return; }
+
+  const routine = parseWorkoutText(q).routines[0];
+  const item = routine && routine.items[0];
+  if (!item || !item.sets.some((s) => Object.keys(s).length)) { box.innerHTML = ''; return; }
+
+  quickAddDraft = { item, pick: onPickAction, ctx: contextId };
+  box.innerHTML = `
+    <button class="pick" data-action="quick-add" style="margin-top:10px">
+      <div class="grow">
+        <div class="nm">${esc(item.name)}</div>
+        <div class="card-sub">${esc(summarizeItem(item) || 'add it')} &middot; filled in and ready</div>
+      </div>
+      <span class="pill ${item.type}">${item.type}</span>
+    </button>`;
 }
 
 /** How should this be recorded? Asked only for a name the app hasn't seen. */
@@ -3855,7 +3968,10 @@ function exercisePicker(onPickAction, contextId) {
     </button>`;
 
   openSheet('Add exercise', `
-    <input class="text" id="ex-search" placeholder="Search, or type a custom name" autocomplete="off">
+    <input class="text" id="ex-search" autocomplete="off"
+           placeholder="Search, or write it out: incline db press 3x10 50lb">
+    <!-- Filled in as you type, when what you typed includes numbers. -->
+    <div id="ex-quick"></div>
     <button class="btn block secondary" data-action="add-custom" data-ctx="${ctx}"
             data-pick="${onPickAction}" style="margin:10px 0 16px">Add as custom exercise</button>
     <div id="ex-list">
@@ -3873,6 +3989,7 @@ function exercisePicker(onPickAction, contextId) {
     </div>`);
 
   $('#ex-search').addEventListener('input', (ev) => {
+    renderQuickAdd(ev.target.value, onPickAction, contextId);
     const q = ev.target.value.trim().toLowerCase();
     $$('#ex-list .pick').forEach((btn) => {
       btn.style.display = btn.dataset.name.toLowerCase().includes(q) ? '' : 'none';
@@ -4290,6 +4407,14 @@ document.addEventListener('click', (ev) => {
     case 'custom-type':
       chooseExercise(btn.dataset.pick, btn.dataset.ctx, btn.dataset.name, btn.dataset.type);
       break;
+
+    case 'quick-add': {
+      const d = quickAddDraft;
+      if (!d) return;
+      quickAddDraft = null;
+      chooseExercise(d.pick, d.ctx, d.item.name, d.item.type, d.item);
+      break;
+    }
 
     /* ---- logging onto a specific day ---- */
     case 'log-on-day':
@@ -4860,6 +4985,26 @@ document.addEventListener('input', (ev) => {
   /* Correcting when a workout actually happened. Only the clock moves — the
      calendar day stays put, so a 6am session can't slide onto the day before
      because someone scrolled the hour past midnight. */
+  /* Moving a workout to a different day. The clock time is carried across
+     untouched, so correcting the date can't silently reset when it happened. */
+  if (el.dataset.sessionDate !== undefined) {
+    const session = state.sessions.find((s) => s.id === el.dataset.sessionDate);
+    if (!session || !/^\d{4}-\d{2}-\d{2}$/.test(el.value)) return;
+    const was = new Date(session.date);
+    const when = keyToDate(el.value);
+    when.setHours(was.getHours(), was.getMinutes(), 0, 0);
+    session.date = when.toISOString();
+    state.sessions.sort((x, y) => +new Date(y.date) - +new Date(x.date));
+    save();
+    /* It has left the day that's open, so the view has to follow it rather
+       than leaving a gap where the workout used to be. */
+    calCursor = new Date(session.date);
+    calSelected = dayKey(session.date);
+    render();
+    toast(`Moved to ${when.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}`);
+    return;
+  }
+
   if (el.dataset.sessionTime !== undefined) {
     const session = state.sessions.find((s) => s.id === el.dataset.sessionTime);
     const [h, m] = String(el.value).split(':').map(Number);
